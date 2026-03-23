@@ -47,7 +47,7 @@ commission_pct = 0.1
 # Piyasa filtresi: XU100 SMA50 ustundeyse trade ac
 market_filter_enabled = true
 market_index = "XU100"
-market_sma_period = 50
+market_sma_period = 100
 
 # Skor bazli giris: min 5 puan gerekli
 min_entry_score = 5

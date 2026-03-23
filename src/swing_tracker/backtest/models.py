@@ -26,7 +26,7 @@ class BacktestConfig:
     # Market regime filter
     market_filter_enabled: bool = True
     market_index: str = "XU100"  # endeks sembolü
-    market_sma_period: int = 50  # endeks bu SMA üstündeyse "boğa"
+    market_sma_period: int = 100  # endeks bu SMA üstündeyse "boğa"
 
     # Timeframe mode: "multi" (hourly+daily) or "daily" (daily only, for long backtests)
     timeframe_mode: str = "multi"

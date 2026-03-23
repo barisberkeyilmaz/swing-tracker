@@ -65,10 +65,11 @@ class Scanner:
                 logger.warning("Endeks verisi yetersiz, piyasa filtresi devre disi")
                 return True
 
-            df["SMA_50"] = bp.calculate_sma(df, period=50)
+            sma_period = 100  # config'den alinabilir, varsayilan 100
+            df[f"SMA_{sma_period}"] = bp.calculate_sma(df, period=sma_period)
             last = df.iloc[-1]
             close = float(last["Close"])
-            sma = float(last["SMA_50"]) if pd.notna(last.get("SMA_50")) else None
+            sma = float(last[f"SMA_{sma_period}"]) if pd.notna(last.get(f"SMA_{sma_period}")) else None
 
             if sma is None:
                 return True
