@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "swing-tracker"
+version = "0.1.0"
+description = "Personal swing trading signal system for BIST"
+requires-python = ">=3.11"
+dependencies = [
+    "borsapy>=0.8.3",
+    "python-telegram-bot>=21.0",
+    "apscheduler>=3.10,<4.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3.0",
+]
+
+[project.scripts]
+swing-tracker = "swing_tracker.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/swing_tracker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

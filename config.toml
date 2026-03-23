@@ -1,0 +1,74 @@
+[general]
+db_path = "data/swing_tracker.db"
+log_level = "INFO"
+log_file = "logs/swing_tracker.log"
+timezone = "Europe/Istanbul"
+
+[portfolio]
+benchmark = "XU100"
+initial_cash = 60000
+monthly_deposit = 30000
+max_swing_positions = 5
+risk_per_trade_pct = 2.0
+
+[telegram]
+enabled = true
+notify_signals = true
+notify_tp_sl = true
+notify_daily_report = true
+
+[scanner]
+universe = "XU100"
+quick_scan_interval_minutes = 30
+deep_scan_time = "18:30"
+prefilters = [
+    "rsi < 35 and close > sma_50",
+    "stoch_k < 25",
+    "close < bb_lower * 1.02 and rsi < 40",
+]
+
+[monitor]
+check_interval_minutes = 5
+trailing_stop_enabled = true
+trailing_stop_atr_mult = 1.5
+
+[backtest]
+symbols = [
+    "THYAO", "ASELS", "KCHOL", "SAHOL", "BIMAS",
+    "GARAN", "AKBNK", "EREGL", "FROTO", "ARCLK",
+    "ENKAI", "CCOLA", "DOAS", "EKGYO", "ENJSA",
+]
+start_date = "2024-01-01"
+end_date = "2025-12-31"
+initial_cash = 100000
+max_positions = 5
+commission_pct = 0.1
+
+# Piyasa filtresi: XU100 SMA50 ustundeyse trade ac
+market_filter_enabled = true
+market_index = "XU100"
+market_sma_period = 50
+
+# Skor bazli giris: min 5 puan gerekli
+min_entry_score = 5
+trend_sma_period = 50
+rsi_pullback_threshold = 45      # Gunluk RSI < 45 → +2 puan
+rsi_pullback_score = 2
+macd_negative_score = 1           # MACD < Signal → +1 puan
+bb_lower_score = 2                # Fiyat BB alt bandina yakin → +2 puan
+hourly_rsi_reversal_threshold = 40 # Saatlik RSI donus → +2 puan
+hourly_rsi_reversal_score = 2
+volume_above_avg_score = 1        # Hacim > ortalama → +1 puan
+volume_avg_period = 20
+trailing_stop_pct = 0.20
+
+[strategy.default]
+min_score = 30
+sl_atr_mult = 1.5
+tp1_atr_mult = 1.5
+tp2_atr_mult = 3.0
+tp3_atr_mult = 4.5
+tp1_exit_pct = 0.50
+tp2_exit_pct = 0.30
+trailing_stop = true
+use_sr_levels = true
