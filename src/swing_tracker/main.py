@@ -76,8 +76,12 @@ def job_quick_scan(scanner: Scanner, portfolio: PortfolioManager, notifier: Tele
         cash = portfolio.available_cash()
         result = scanner.run_quick_scan(available_cash=cash)
 
+        if not result.market_bullish:
+            logger.info("Ayi piyasasi — sinyal gonderilmiyor")
+            return
+
         for candidate in result.candidates:
-            _run_async(notifier.notify_signal(candidate))
+            _run_async(notifier.notify_scored_signal(candidate))
 
         logger.info(f"Quick scan: {result.filtered_count} sinyal bulundu")
     except Exception:
@@ -102,6 +106,7 @@ def job_deep_scan(scanner: Scanner, portfolio: PortfolioManager, notifier: Teleg
             swing_pnl=swing.unrealized_pnl + swing.realized_pnl,
             open_trades=open_trades,
             new_signals=result.candidates,
+            market_bullish=result.market_bullish,
         ))
 
         logger.info(f"Deep scan + gunluk rapor gonderildi")
