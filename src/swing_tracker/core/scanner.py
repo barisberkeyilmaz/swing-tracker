@@ -228,7 +228,13 @@ class Scanner:
             try:
                 result = bp.scan(universe, prefilter, interval="1d")
                 if result is not None and not result.empty:
-                    symbols = result.index.tolist() if result.index.name else result.iloc[:, 0].tolist()
+                    if "symbol" in result.columns:
+                        symbols = result["symbol"].tolist()
+                    elif result.index.name == "symbol":
+                        symbols = result.index.tolist()
+                    else:
+                        logger.warning(f"Pre-filter sonucunda 'symbol' kolonu yok: {result.columns.tolist()}")
+                        continue
                     candidate_symbols.update(str(s) for s in symbols)
                     logger.info(f"Pre-filter '{prefilter}': {len(symbols)} sonuc")
             except Exception:

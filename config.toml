@@ -24,7 +24,7 @@ deep_scan_time = "18:30"
 prefilters = [
     "rsi < 35 and close > sma_50",
     "stoch_k < 25",
-    "close < bb_lower * 1.02 and rsi < 40",
+    "rsi < 40 and close > sma_100",
 ]
 
 [monitor]
