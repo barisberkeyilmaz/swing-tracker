@@ -42,53 +42,51 @@ class TelegramNotifier:
         else:
             logger.warning("Telegram devre disi veya yapilandirilmamis")
 
-    def start_polling(self) -> None:
-        """Start the bot in polling mode for interactive commands."""
+    def start_polling_in_thread(self) -> None:
+        """Start the bot polling in a separate thread.
+
+        Uses manual init/start instead of run_polling() to avoid
+        signal handler issues in non-main threads.
+        """
         if not self._config.token:
             return
 
-        self._app = Application.builder().token(self._config.token).build()
+        import threading
 
-        # Register command handlers
-        self._app.add_handler(CommandHandler("durum", self._cmd_durum))
-        self._app.add_handler(CommandHandler("portfoy", self._cmd_portfoy))
-        self._app.add_handler(CommandHandler("pozisyon", self._cmd_pozisyon))
-        self._app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
-        self._app.add_handler(CommandHandler("scan", self._cmd_scan))
-        self._app.add_handler(CommandHandler("nakit", self._cmd_nakit))
-        self._app.add_handler(CommandHandler("yardim", self._cmd_yardim))
-        self._app.add_handler(CommandHandler("start", self._cmd_yardim))
+        def _run_polling():
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-        # Start polling in background (non-blocking)
-        self._app.run_polling(drop_pending_updates=True, close_loop=False)
+            async def _start():
+                app = Application.builder().token(self._config.token).build()
+                self._app = app
 
-    async def start_polling_async(self) -> None:
-        """Start polling in async context."""
-        if not self._config.token:
-            return
+                app.add_handler(CommandHandler("durum", self._cmd_durum))
+                app.add_handler(CommandHandler("portfoy", self._cmd_portfoy))
+                app.add_handler(CommandHandler("pozisyon", self._cmd_pozisyon))
+                app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
+                app.add_handler(CommandHandler("scan", self._cmd_scan))
+                app.add_handler(CommandHandler("nakit", self._cmd_nakit))
+                app.add_handler(CommandHandler("yardim", self._cmd_yardim))
+                app.add_handler(CommandHandler("start", self._cmd_yardim))
 
-        self._app = Application.builder().token(self._config.token).build()
+                await app.initialize()
+                await app.start()
+                await app.updater.start_polling(drop_pending_updates=True)
+                logger.info("Telegram komut dinleme baslatildi")
 
-        self._app.add_handler(CommandHandler("durum", self._cmd_durum))
-        self._app.add_handler(CommandHandler("portfoy", self._cmd_portfoy))
-        self._app.add_handler(CommandHandler("pozisyon", self._cmd_pozisyon))
-        self._app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
-        self._app.add_handler(CommandHandler("scan", self._cmd_scan))
-        self._app.add_handler(CommandHandler("nakit", self._cmd_nakit))
-        self._app.add_handler(CommandHandler("yardim", self._cmd_yardim))
-        self._app.add_handler(CommandHandler("start", self._cmd_yardim))
+                # Keep running until thread is killed
+                while True:
+                    await asyncio.sleep(1)
 
-        await self._app.initialize()
-        await self._app.start()
-        await self._app.updater.start_polling(drop_pending_updates=True)
-        logger.info("Telegram komut dinleme baslatildi")
+            try:
+                loop.run_until_complete(_start())
+            except Exception:
+                logger.debug("Telegram polling thread kapandi")
 
-    async def stop_polling(self) -> None:
-        """Stop polling."""
-        if self._app:
-            await self._app.updater.stop()
-            await self._app.stop()
-            await self._app.shutdown()
+        thread = threading.Thread(target=_run_polling, daemon=True)
+        thread.start()
 
     # ── Command Handlers ──
 

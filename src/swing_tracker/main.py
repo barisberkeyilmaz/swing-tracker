@@ -175,10 +175,9 @@ def main():
     _notifier.portfolio = portfolio
     _notifier.repo = repo
 
-    # Start Telegram command polling
+    # Start Telegram command polling in separate thread
     try:
-        _run_async(_notifier.start_polling_async())
-        logger.info("Telegram komutlari aktif")
+        _notifier.start_polling_in_thread()
     except Exception:
         logger.warning("Telegram polling baslatilamadi, sadece bildirim modu")
 
