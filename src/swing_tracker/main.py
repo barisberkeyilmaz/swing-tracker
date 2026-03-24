@@ -55,15 +55,16 @@ def setup_logging(config: Config) -> None:
 
 
 def _run_async(coro):
-    """Run an async coroutine from a sync context."""
+    """Run an async coroutine from a sync context (APScheduler thread)."""
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(coro)
-        else:
-            loop.run_until_complete(coro)
-    except RuntimeError:
         asyncio.run(coro)
+    except RuntimeError:
+        # If there's already an event loop, create a new one
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
 
 # ── Scheduled Jobs ──

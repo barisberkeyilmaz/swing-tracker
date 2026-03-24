@@ -241,33 +241,69 @@ class TelegramNotifier:
                 tp1 = t.get("take_profit_1")
                 tp2 = t.get("take_profit_2")
 
-                # Check TP1 hit and trailing stop info
+                # Check exits already done
                 exits = self.repo.get_trade_exits(tid)
-                tp1_hit = any(e.get("exit_type") == "tp1" for e in exits)
+                tp1_exited = any(e.get("exit_type") == "tp1" for e in exits)
+                tp2_exited = any(e.get("exit_type") == "tp2" for e in exits)
                 exited_shares = sum(e.get("shares", 0) for e in exits)
                 remaining = shares - exited_shares
 
-                detail = f"  <i>#{tid} {entry:.2f} x{remaining:.0f}/{shares:.0f} lot"
-                if not tp1_hit:
-                    if sl:
-                        detail += f"\n    SL:{sl:.2f}"
-                    if tp1:
-                        detail += f" → TP1:{tp1:.2f}"
+                if remaining <= 0:
+                    continue
+
+                detail = f"  <i>#{tid} {entry:.2f} x{remaining:.0f}/{shares:.0f} lot\n"
+
+                # Check current price vs TP/SL and give actionable advice
+                tp1_lots = int(shares * 0.50)
+                tp2_lots = int(shares * 0.30)
+
+                if current and tp2 and current >= tp2 and not tp2_exited:
+                    # Price above TP2
+                    if not tp1_exited:
+                        sell_lots = tp1_lots + tp2_lots
+                        detail += f"    ⚡ TP1+TP2 asildi! /sat {tid} {sell_lots} {current:.2f}\n"
+                    else:
+                        detail += f"    ⚡ TP2 asildi! /sat {tid} {tp2_lots} {current:.2f}\n"
+                    highest = current
+                    if self.monitor and tid in self.monitor._highest_prices:
+                        highest = self.monitor._highest_prices[tid]
+                    trail_level = highest * (1 - 0.20)
+                    detail += f"    Trailing: {trail_level:.2f} (zirve: {highest:.2f})\n"
+
+                elif current and tp1 and current >= tp1 and not tp1_exited:
+                    # Price above TP1
+                    detail += f"    🎯 TP1'e ulasildi! /sat {tid} {tp1_lots} {current:.2f}\n"
                     if tp2:
-                        detail += f" → TP2:{tp2:.2f}"
-                else:
-                    # TP1 hit — show trailing stop level
+                        detail += f"    TP2: {tp2:.2f} bekle\n"
+
+                elif current and sl and current <= sl:
+                    # Price below SL
+                    detail += f"    🔴 SL tetiklendi! /sat {tid} {remaining:.0f} {current:.2f}\n"
+
+                elif tp1_exited and not tp2_exited:
+                    # TP1 done, waiting for TP2 or trailing
                     highest = entry
                     if self.monitor and tid in self.monitor._highest_prices:
                         highest = self.monitor._highest_prices[tid]
                     elif current:
                         highest = current
                     trail_level = highest * (1 - 0.20)
-                    detail += f"\n    TP1 ✅ | Trailing: {trail_level:.2f} (zirve: {highest:.2f})"
-                    if tp2 and not any(e.get("exit_type") == "tp2" for e in exits):
+                    detail += f"    TP1 ✅ | Trailing: {trail_level:.2f} (zirve: {highest:.2f})"
+                    if tp2:
                         detail += f" | TP2:{tp2:.2f}"
+                    detail += "\n"
 
-                detail += "</i>\n"
+                else:
+                    # Normal — show levels
+                    if sl:
+                        detail += f"    SL:{sl:.2f}"
+                    if tp1:
+                        detail += f" → TP1:{tp1:.2f} ({tp1_lots} lot)"
+                    if tp2:
+                        detail += f" → TP2:{tp2:.2f} ({tp2_lots} lot)"
+                    detail += "\n"
+
+                detail += "  </i>"
                 lines.append(detail)
 
         await update.message.reply_text("".join(lines), parse_mode=ParseMode.HTML)
