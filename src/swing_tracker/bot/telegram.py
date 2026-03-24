@@ -68,6 +68,8 @@ class TelegramNotifier:
                 app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
                 app.add_handler(CommandHandler("scan", self._cmd_scan))
                 app.add_handler(CommandHandler("nakit", self._cmd_nakit))
+                app.add_handler(CommandHandler("al", self._cmd_al))
+                app.add_handler(CommandHandler("sat", self._cmd_sat))
                 app.add_handler(CommandHandler("yardim", self._cmd_yardim))
                 app.add_handler(CommandHandler("start", self._cmd_yardim))
 
@@ -95,15 +97,22 @@ class TelegramNotifier:
         text = (
             "🤖 <b>Swing Tracker Komutlari</b>\n"
             "\n"
+            "<b>Bilgi:</b>\n"
             "/durum — Sistem durumu ve piyasa rejimi\n"
             "/portfoy — Portfoy ozeti (nakit + yatirim)\n"
-            "/pozisyon — Acik pozisyonlar\n"
+            "/pozisyon — Acik pozisyonlar ve canli PnL\n"
             "/sinyal — Son sinyaller\n"
             "/scan — Manuel tarama baslat\n"
-            "/nakit — Nakit bakiye\n"
-            "/nakit ekle 50000 — Nakit yatir\n"
-            "/nakit cek 10000 — Nakit cek\n"
-            "/yardim — Bu mesaj\n"
+            "\n"
+            "<b>Islem:</b>\n"
+            "/al THYAO 315.50 100 — Alis kaydet (sembol fiyat lot)\n"
+            "/sat 1 — Pozisyonu kapat (trade ID)\n"
+            "/sat 1 50 328.00 — Kismi satis (ID lot fiyat)\n"
+            "\n"
+            "<b>Nakit:</b>\n"
+            "/nakit — Bakiye\n"
+            "/nakit ekle 50000 — Yatir\n"
+            "/nakit cek 10000 — Cek\n"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -341,6 +350,226 @@ class TelegramNotifier:
         lines.append("\n/nakit ekle 50000 — Yatir\n/nakit cek 10000 — Cek")
 
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+    async def _cmd_al(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Record a buy and auto-calculate TP/SL levels.
+
+        Usage: /al THYAO 315.50 100
+        """
+        if not self.repo:
+            await update.message.reply_text("DB hazir degil.")
+            return
+
+        args = context.args or []
+        if len(args) < 3:
+            await update.message.reply_text(
+                "Kullanim: /al SEMBOL FIYAT LOT\n"
+                "Ornek: /al THYAO 315.50 100"
+            )
+            return
+
+        try:
+            symbol = args[0].upper()
+            entry_price = float(args[1])
+            shares = int(args[2])
+        except (ValueError, IndexError):
+            await update.message.reply_text("Gecersiz format. Ornek: /al THYAO 315.50 100")
+            return
+
+        # Calculate TP/SL using ATR from live data
+        try:
+            import borsapy as bp
+            from swing_tracker.core.signals import _add_all_indicators
+
+            ticker = bp.Ticker(symbol)
+            df = ticker.history(period="3mo", interval="1d")
+            if df is not None and len(df) > 14:
+                df = _add_all_indicators(df)
+                last = df.iloc[-1]
+                atr = float(last.get("ATR", 0)) or float(last.get("ATR_14", 0))
+            else:
+                atr = entry_price * 0.03  # fallback: %3
+        except Exception:
+            atr = entry_price * 0.03
+
+        strategy = self.repo._conn.execute("SELECT 1").fetchone()  # DB check
+        sl_mult = 1.5
+        tp1_mult = 1.5
+        tp2_mult = 3.0
+
+        sl = round(entry_price - atr * sl_mult, 2)
+        tp1 = round(entry_price + atr * tp1_mult, 2)
+        tp2 = round(entry_price + atr * tp2_mult, 2)
+        total_cost = entry_price * shares
+
+        # Save to DB
+        from datetime import datetime
+        trade_id = self.repo.create_trade(
+            symbol=symbol,
+            direction="long",
+            status="open",
+            entry_price=entry_price,
+            entry_date=datetime.now().strftime("%Y-%m-%d"),
+            shares=shares,
+            stop_loss=sl,
+            take_profit_1=tp1,
+            take_profit_2=tp2,
+            entry_reasons=["manuel giris"],
+            signal_score=0,
+        )
+
+        # Deduct cash
+        self.repo.add_cash_transaction(
+            -total_cost, "buy", related_trade_id=trade_id,
+            description=f"{symbol} alim {shares} lot @ {entry_price}",
+        )
+
+        # Add to holdings
+        self.repo.add_holding(
+            symbol=symbol, asset_type="equity",
+            shares=shares, cost_per_share=entry_price,
+        )
+
+        sl_pct = (entry_price - sl) / entry_price * 100
+        tp1_pct = (tp1 - entry_price) / entry_price * 100
+        tp2_pct = (tp2 - entry_price) / entry_price * 100
+        rr = round(tp1_pct / sl_pct, 1) if sl_pct > 0 else 0
+
+        balance = self.repo.get_cash_balance()
+
+        text = (
+            f"✅ <b>ALIS KAYDEDILDI</b>\n"
+            f"\n"
+            f"#{trade_id} {symbol} @ {entry_price:.2f} TL x{shares} lot\n"
+            f"Toplam: {total_cost:,.0f} TL\n"
+            f"\n"
+            f"📐 <b>Otomatik TP/SL (ATR bazli):</b>\n"
+            f"  🔴 SL: {sl:.2f} (-{sl_pct:.1f}%)\n"
+            f"  🎯 TP1: {tp1:.2f} (+{tp1_pct:.1f}%) — %50 sat\n"
+            f"  🎯 TP2: {tp2:.2f} (+{tp2_pct:.1f}%) — %30 sat\n"
+            f"  R/R: {rr}x\n"
+            f"\n"
+            f"💰 Kalan nakit: {balance:,.0f} TL\n"
+            f"\n"
+            f"Pozisyon her 5 dk kontrol edilecek.\n"
+            f"TP/SL tetiklenince bildirim gelecek."
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+    async def _cmd_sat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Close or partially close a position.
+
+        Usage:
+          /sat 1           → Close trade #1 at market
+          /sat 1 50 328.00 → Sell 50 shares of trade #1 at 328.00
+        """
+        if not self.repo:
+            await update.message.reply_text("DB hazir degil.")
+            return
+
+        args = context.args or []
+        if not args:
+            # Show open trades for reference
+            open_trades = self.repo.get_open_trades()
+            if not open_trades:
+                await update.message.reply_text("Acik pozisyon yok.")
+                return
+            lines = ["Kullanim: /sat ID [lot fiyat]\n\nAcik pozisyonlar:"]
+            for t in open_trades:
+                lines.append(f"  #{t['id']} {t['symbol']} @ {t.get('entry_price', 0):.2f} x{t.get('shares', 0)} lot")
+            await update.message.reply_text("\n".join(lines))
+            return
+
+        try:
+            trade_id = int(args[0])
+        except ValueError:
+            await update.message.reply_text("Gecersiz trade ID. Ornek: /sat 1")
+            return
+
+        trade = self.repo.get_trade(trade_id)
+        if not trade:
+            await update.message.reply_text(f"Trade #{trade_id} bulunamadi.")
+            return
+        if trade["status"] not in ("open", "partial_exit"):
+            await update.message.reply_text(f"Trade #{trade_id} zaten kapali.")
+            return
+
+        symbol = trade["symbol"]
+        entry_price = trade.get("entry_price", 0)
+
+        # Determine sell price and shares
+        if len(args) >= 3:
+            sell_shares = int(args[1])
+            sell_price = float(args[2])
+        elif len(args) == 2:
+            sell_shares = int(args[1])
+            # Get current price
+            try:
+                import borsapy as bp
+                sell_price = float(bp.Ticker(symbol).fast_info.get("last", entry_price))
+            except Exception:
+                await update.message.reply_text("Fiyat alinamadi. Fiyati belirt: /sat 1 50 328.00")
+                return
+        else:
+            # Full close at market
+            sell_shares = trade.get("shares", 0)
+            try:
+                import borsapy as bp
+                sell_price = float(bp.Ticker(symbol).fast_info.get("last", entry_price))
+            except Exception:
+                await update.message.reply_text("Fiyat alinamadi. Fiyati belirt: /sat 1 100 328.00")
+                return
+
+        pnl = (sell_price - entry_price) * sell_shares
+        pnl_pct = (sell_price - entry_price) / entry_price * 100 if entry_price else 0
+
+        # Record exit
+        self.repo.record_exit(
+            trade_id=trade_id,
+            exit_type="manual",
+            shares=sell_shares,
+            price=sell_price,
+            pnl=round(pnl, 2),
+            pnl_pct=round(pnl_pct, 2),
+        )
+
+        # Return cash
+        self.repo.add_cash_transaction(
+            sell_price * sell_shares, "sell", related_trade_id=trade_id,
+            description=f"{symbol} satis {sell_shares} lot @ {sell_price:.2f}",
+        )
+
+        # Update trade status
+        remaining = trade.get("shares", 0) - sell_shares
+        exits = self.repo.get_trade_exits(trade_id)
+        total_exited = sum(e.get("shares", 0) for e in exits)
+
+        if total_exited >= trade.get("shares", 0):
+            self.repo.update_trade_status(trade_id, "closed", realized_pnl=sum(e.get("pnl", 0) for e in exits))
+            status_text = "KAPANDI"
+            # Remove from holdings
+            self.repo.remove_holding(symbol)
+        else:
+            self.repo.update_trade_status(trade_id, "partial_exit")
+            status_text = f"KISMI SATIS ({total_exited}/{trade.get('shares', 0)} lot)"
+            # Update holding shares
+            self.repo.add_holding(
+                symbol=symbol, asset_type="equity",
+                shares=trade.get("shares", 0) - total_exited,
+                cost_per_share=entry_price,
+            )
+
+        balance = self.repo.get_cash_balance()
+        emoji = "📈" if pnl >= 0 else "📉"
+
+        text = (
+            f"{emoji} <b>SATIS: {symbol}</b> — {status_text}\n"
+            f"\n"
+            f"#{trade_id} {sell_shares} lot @ {sell_price:.2f} TL\n"
+            f"PnL: {pnl:+,.0f} TL ({pnl_pct:+.1f}%)\n"
+            f"💰 Nakit: {balance:,.0f} TL"
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     # ── Notification Methods ──
 
