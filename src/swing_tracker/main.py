@@ -174,6 +174,7 @@ def main():
     _notifier.scanner = scanner
     _notifier.portfolio = portfolio
     _notifier.repo = repo
+    _notifier.monitor = monitor
 
     # Start Telegram command polling in separate thread
     try:

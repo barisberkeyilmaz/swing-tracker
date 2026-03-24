@@ -16,7 +16,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from swing_tracker.config import TelegramConfig
 
 if TYPE_CHECKING:
-    from swing_tracker.core.monitor import Alert
+    from swing_tracker.core.monitor import Alert, Monitor
     from swing_tracker.core.portfolio import PortfolioManager
     from swing_tracker.core.scanner import Scanner, ScoredCandidate
     from swing_tracker.core.signals import AnalysisResult
@@ -35,6 +35,7 @@ class TelegramNotifier:
         self.scanner: Scanner | None = None
         self.portfolio: PortfolioManager | None = None
         self.repo: Repository | None = None
+        self.monitor: Monitor | None = None
 
         if config.enabled and config.token and config.chat_id:
             self._bot = Bot(token=config.token)
@@ -239,13 +240,33 @@ class TelegramNotifier:
                 sl = t.get("stop_loss")
                 tp1 = t.get("take_profit_1")
                 tp2 = t.get("take_profit_2")
-                detail = f"  <i>#{tid} {entry:.2f} x{shares:.0f}"
-                if sl:
-                    detail += f" | SL:{sl:.2f}"
-                if tp1:
-                    detail += f" | TP1:{tp1:.2f}"
-                if tp2:
-                    detail += f" | TP2:{tp2:.2f}"
+
+                # Check TP1 hit and trailing stop info
+                exits = self.repo.get_trade_exits(tid)
+                tp1_hit = any(e.get("exit_type") == "tp1" for e in exits)
+                exited_shares = sum(e.get("shares", 0) for e in exits)
+                remaining = shares - exited_shares
+
+                detail = f"  <i>#{tid} {entry:.2f} x{remaining:.0f}/{shares:.0f} lot"
+                if not tp1_hit:
+                    if sl:
+                        detail += f"\n    SL:{sl:.2f}"
+                    if tp1:
+                        detail += f" → TP1:{tp1:.2f}"
+                    if tp2:
+                        detail += f" → TP2:{tp2:.2f}"
+                else:
+                    # TP1 hit — show trailing stop level
+                    highest = entry
+                    if self.monitor and tid in self.monitor._highest_prices:
+                        highest = self.monitor._highest_prices[tid]
+                    elif current:
+                        highest = current
+                    trail_level = highest * (1 - 0.20)
+                    detail += f"\n    TP1 ✅ | Trailing: {trail_level:.2f} (zirve: {highest:.2f})"
+                    if tp2 and not any(e.get("exit_type") == "tp2" for e in exits):
+                        detail += f" | TP2:{tp2:.2f}"
+
                 detail += "</i>\n"
                 lines.append(detail)
 
