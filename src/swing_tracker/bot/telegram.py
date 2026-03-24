@@ -122,19 +122,24 @@ class TelegramNotifier:
             status = "Boga" if is_bull else "Ayi"
             lines.append(f"Piyasa: {emoji} {status}")
 
-        # Portfolio
-        if self.portfolio:
-            try:
-                summary = self.portfolio.get_summary()
-                lines.append(f"Portfoy: {summary.total_value:,.0f} TL")
-                lines.append(f"Nakit: {summary.cash_balance:,.0f} TL")
-            except Exception:
-                lines.append("Portfoy: hesaplanamadi")
-
         # Open trades
         if self.repo:
             open_trades = self.repo.get_open_trades()
             lines.append(f"Acik pozisyon: {len(open_trades)}")
+
+            # Quick PnL summary
+            total_pnl = 0.0
+            for trade in open_trades:
+                entry = trade.get("entry_price", 0)
+                shares = trade.get("shares", 0)
+                exits = self.repo.get_trade_exits(trade["id"])
+                exited = sum(e.get("shares", 0) for e in exits)
+                remaining = shares - exited
+                price = self._get_current_price(trade["symbol"])
+                if price and remaining > 0:
+                    total_pnl += (price - entry) * remaining
+            if open_trades:
+                lines.append(f"Toplam PnL: {total_pnl:+,.0f} TL")
 
             # Recent signals
             signals = self.repo.get_recent_signals(limit=5)
