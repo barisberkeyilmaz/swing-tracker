@@ -178,8 +178,19 @@ class TelegramNotifier:
             logger.exception("Portfoy komutu hatasi")
             await update.message.reply_text("Portfoy bilgisi alinamadi.")
 
+    def _get_current_price(self, symbol: str) -> float | None:
+        """Get current price for a symbol."""
+        try:
+            import borsapy as bp
+            df = bp.Ticker(symbol).history(period="5d", interval="1d")
+            if df is not None and len(df) > 0:
+                return float(df.iloc[-1]["Close"])
+        except Exception:
+            pass
+        return None
+
     async def _cmd_pozisyon(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show open positions."""
+        """Show open positions, grouped by symbol."""
         if not self.repo:
             await update.message.reply_text("DB hazir degil.")
             return
@@ -189,37 +200,54 @@ class TelegramNotifier:
             await update.message.reply_text("Acik pozisyon yok.")
             return
 
-        lines = [f"📈 <b>Acik Pozisyonlar ({len(open_trades)})</b>\n"]
-
+        # Group trades by symbol
+        grouped: dict[str, list[dict]] = {}
         for trade in open_trades:
             symbol = trade["symbol"]
-            entry = trade.get("entry_price", 0)
-            shares = trade.get("shares", 0)
-            sl = trade.get("stop_loss")
-            tp1 = trade.get("take_profit_1")
+            grouped.setdefault(symbol, []).append(trade)
 
-            # Try to get current price
-            try:
-                import borsapy as bp
-                current = float(bp.Ticker(symbol).fast_info.get("last", entry))
-                pnl_pct = (current - entry) / entry * 100 if entry else 0
-                emoji = "📈" if pnl_pct >= 0 else "📉"
-                price_text = f"Simdi: {current:.2f} ({pnl_pct:+.1f}%)"
-            except Exception:
-                price_text = "Fiyat alinamadi"
-                emoji = "❓"
+        lines = [f"📈 <b>Acik Pozisyonlar</b>\n"]
 
-            line = (
-                f"\n{emoji} <b>{symbol}</b>\n"
-                f"  Giris: {entry:.2f} x{shares} lot\n"
-                f"  {price_text}\n"
-            )
-            if sl:
-                line += f"  SL: {sl:.2f}"
-            if tp1:
-                line += f" | TP1: {tp1:.2f}"
-            line += "\n"
-            lines.append(line)
+        for symbol, trades in grouped.items():
+            current = self._get_current_price(symbol)
+
+            # Calculate combined position
+            total_shares = sum(t.get("shares", 0) for t in trades)
+            total_cost = sum(t.get("entry_price", 0) * t.get("shares", 0) for t in trades)
+            avg_cost = total_cost / total_shares if total_shares > 0 else 0
+
+            if current:
+                pnl = (current - avg_cost) * total_shares
+                pnl_pct = (current - avg_cost) / avg_cost * 100 if avg_cost else 0
+                emoji = "📈" if pnl >= 0 else "📉"
+                lines.append(
+                    f"\n{emoji} <b>{symbol}</b> — {current:.2f} TL\n"
+                    f"  Toplam: {total_shares:.0f} lot | Ort. maliyet: {avg_cost:.2f}\n"
+                    f"  PnL: {pnl:+,.0f} TL ({pnl_pct:+.1f}%)\n"
+                )
+            else:
+                lines.append(
+                    f"\n❓ <b>{symbol}</b>\n"
+                    f"  Toplam: {total_shares:.0f} lot | Ort. maliyet: {avg_cost:.2f}\n"
+                )
+
+            # Individual trades
+            for t in trades:
+                tid = t["id"]
+                entry = t.get("entry_price", 0)
+                shares = t.get("shares", 0)
+                sl = t.get("stop_loss")
+                tp1 = t.get("take_profit_1")
+                tp2 = t.get("take_profit_2")
+                detail = f"  <i>#{tid} {entry:.2f} x{shares:.0f}"
+                if sl:
+                    detail += f" | SL:{sl:.2f}"
+                if tp1:
+                    detail += f" | TP1:{tp1:.2f}"
+                if tp2:
+                    detail += f" | TP2:{tp2:.2f}"
+                detail += "</i>\n"
+                lines.append(detail)
 
         await update.message.reply_text("".join(lines), parse_mode=ParseMode.HTML)
 
@@ -503,20 +531,15 @@ class TelegramNotifier:
             sell_price = float(args[2])
         elif len(args) == 2:
             sell_shares = int(args[1])
-            # Get current price
-            try:
-                import borsapy as bp
-                sell_price = float(bp.Ticker(symbol).fast_info.get("last", entry_price))
-            except Exception:
+            sell_price = self._get_current_price(symbol)
+            if not sell_price:
                 await update.message.reply_text("Fiyat alinamadi. Fiyati belirt: /sat 1 50 328.00")
                 return
         else:
             # Full close at market
             sell_shares = trade.get("shares", 0)
-            try:
-                import borsapy as bp
-                sell_price = float(bp.Ticker(symbol).fast_info.get("last", entry_price))
-            except Exception:
+            sell_price = self._get_current_price(symbol)
+            if not sell_price:
                 await update.message.reply_text("Fiyat alinamadi. Fiyati belirt: /sat 1 100 328.00")
                 return
 
@@ -697,13 +720,12 @@ class TelegramNotifier:
             for trade in open_trades[:5]:
                 symbol = trade.get("symbol", "?")
                 entry = trade.get("entry_price", 0)
-                try:
-                    import borsapy as bp
-                    current = float(bp.Ticker(symbol).fast_info.get("last", entry))
-                    pnl_pct = (current - entry) / entry * 100 if entry else 0
+                current = self._get_current_price(symbol)
+                if current and entry:
+                    pnl_pct = (current - entry) / entry * 100
                     emoji = "📈" if pnl_pct >= 0 else "📉"
                     text += f"  {emoji} {symbol}: {pnl_pct:+.1f}%\n"
-                except Exception:
+                else:
                     text += f"  ❓ {symbol}: fiyat alinamadi\n"
 
         if new_signals:
