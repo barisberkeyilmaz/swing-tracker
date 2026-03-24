@@ -426,7 +426,7 @@ class TelegramNotifier:
 
         # Add to holdings
         self.repo.add_holding(
-            symbol=symbol, asset_type="equity",
+            symbol=symbol, asset_type="stock",
             shares=shares, cost_per_share=entry_price,
         )
 
@@ -554,7 +554,7 @@ class TelegramNotifier:
             status_text = f"KISMI SATIS ({total_exited}/{trade.get('shares', 0)} lot)"
             # Update holding shares
             self.repo.add_holding(
-                symbol=symbol, asset_type="equity",
+                symbol=symbol, asset_type="stock",
                 shares=trade.get("shares", 0) - total_exited,
                 cost_per_share=entry_price,
             )
