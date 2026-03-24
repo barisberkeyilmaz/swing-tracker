@@ -88,10 +88,12 @@ class PortfolioManager:
         for trade in open_trades:
             try:
                 ticker = bp.Ticker(trade["symbol"])
-                current = ticker.fast_info.get("last", 0)
-                if current and trade.get("entry_price"):
-                    shares = trade.get("shares", 0)
-                    unrealized_pnl += (current - trade["entry_price"]) * shares
+                df = ticker.history(period="5d", interval="1d")
+                if df is not None and len(df) > 0:
+                    current = float(df.iloc[-1]["Close"])
+                    if current and trade.get("entry_price"):
+                        shares = trade.get("shares", 0)
+                        unrealized_pnl += (current - trade["entry_price"]) * shares
             except Exception:
                 logger.warning(f"Fiyat alinamadi: {trade['symbol']}")
 

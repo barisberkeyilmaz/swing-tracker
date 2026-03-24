@@ -52,8 +52,11 @@ class Monitor:
 
             try:
                 ticker = bp.Ticker(symbol)
-                info = ticker.fast_info
-                current_price = float(info.get("last", 0))
+                df = ticker.history(period="5d", interval="1d")
+                if df is None or len(df) == 0:
+                    logger.warning(f"Fiyat alinamadi: {symbol}")
+                    continue
+                current_price = float(df.iloc[-1]["Close"])
 
                 if current_price <= 0:
                     logger.warning(f"Gecersiz fiyat: {symbol}")
