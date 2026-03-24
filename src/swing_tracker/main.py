@@ -170,6 +170,18 @@ def main():
     monitor = Monitor(repo, config)
     _notifier = TelegramNotifier(config.telegram)
 
+    # Wire up components for interactive commands
+    _notifier.scanner = scanner
+    _notifier.portfolio = portfolio
+    _notifier.repo = repo
+
+    # Start Telegram command polling
+    try:
+        _run_async(_notifier.start_polling_async())
+        logger.info("Telegram komutlari aktif")
+    except Exception:
+        logger.warning("Telegram polling baslatilamadi, sadece bildirim modu")
+
     # Setup scheduler
     tz = str(config.timezone)
     _scheduler = BackgroundScheduler(timezone=tz)
