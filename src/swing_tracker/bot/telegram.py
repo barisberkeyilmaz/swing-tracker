@@ -68,7 +68,6 @@ class TelegramNotifier:
                 app.add_handler(CommandHandler("pozisyon", self._cmd_pozisyon))
                 app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
                 app.add_handler(CommandHandler("scan", self._cmd_scan))
-                app.add_handler(CommandHandler("nakit", self._cmd_nakit))
                 app.add_handler(CommandHandler("al", self._cmd_al))
                 app.add_handler(CommandHandler("sat", self._cmd_sat))
                 app.add_handler(CommandHandler("yardim", self._cmd_yardim))
@@ -109,11 +108,6 @@ class TelegramNotifier:
             "/al THYAO 315.50 100 — Alis kaydet (sembol fiyat lot)\n"
             "/sat 1 — Pozisyonu kapat (trade ID)\n"
             "/sat 1 50 328.00 — Kismi satis (ID lot fiyat)\n"
-            "\n"
-            "<b>Nakit:</b>\n"
-            "/nakit — Bakiye\n"
-            "/nakit ekle 50000 — Yatir\n"
-            "/nakit cek 10000 — Cek\n"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -151,28 +145,66 @@ class TelegramNotifier:
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
     async def _cmd_portfoy(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Show portfolio summary."""
-        if not self.portfolio:
-            await update.message.reply_text("Portfoy modulu hazir degil.")
+        """Show portfolio summary based on trades only."""
+        if not self.repo:
+            await update.message.reply_text("DB hazir degil.")
             return
 
         try:
-            summary = self.portfolio.get_summary()
-            swing = self.portfolio.get_swing_summary()
+            open_trades = self.repo.get_open_trades()
+            closed_trades = self.repo.get_trades_by_status("closed")
+
+            # Open positions value
+            total_invested = 0.0
+            current_value = 0.0
+            for trade in open_trades:
+                entry = trade.get("entry_price", 0)
+                shares = trade.get("shares", 0)
+                exits = self.repo.get_trade_exits(trade["id"])
+                exited_shares = sum(e.get("shares", 0) for e in exits)
+                remaining = shares - exited_shares
+                total_invested += entry * remaining
+
+                price = self._get_current_price(trade["symbol"])
+                if price:
+                    current_value += price * remaining
+                else:
+                    current_value += entry * remaining
+
+            unrealized_pnl = current_value - total_invested
+
+            # Realized PnL from all exits
+            realized_pnl = 0.0
+            total_trades_count = 0
+            winning_trades = 0
+            for trade in closed_trades:
+                exits = self.repo.get_trade_exits(trade["id"])
+                trade_pnl = sum(e.get("pnl", 0) for e in exits)
+                realized_pnl += trade_pnl
+                total_trades_count += 1
+                if trade_pnl > 0:
+                    winning_trades += 1
+
+            # Partial exits from open trades
+            for trade in open_trades:
+                exits = self.repo.get_trade_exits(trade["id"])
+                realized_pnl += sum(e.get("pnl", 0) for e in exits)
+
+            win_rate = (winning_trades / total_trades_count * 100) if total_trades_count > 0 else 0
 
             text = (
                 f"💼 <b>Portfoy Ozeti</b>\n"
                 f"\n"
-                f"Toplam Deger: <b>{summary.total_value:,.0f} TL</b>\n"
-                f"Nakit: {summary.cash_balance:,.0f} TL\n"
-                f"Yatirim: {summary.invested_value:,.0f} TL\n"
-                f"PnL: {summary.total_pnl:+,.0f} TL ({summary.total_pnl_pct:+.1f}%)\n"
+                f"<b>Acik Pozisyonlar ({len(open_trades)}):</b>\n"
+                f"  Yatirilan: {total_invested:,.0f} TL\n"
+                f"  Guncel deger: {current_value:,.0f} TL\n"
+                f"  Gerceklesmemis PnL: {unrealized_pnl:+,.0f} TL\n"
                 f"\n"
-                f"📈 <b>Swing Trading</b>\n"
-                f"Acik pozisyon: {swing.open_trades}\n"
-                f"Yatirilan: {swing.total_invested:,.0f} TL\n"
-                f"Gerceklesmemis PnL: {swing.unrealized_pnl:+,.0f} TL\n"
-                f"Gerceklesmis PnL: {swing.realized_pnl:+,.0f} TL\n"
+                f"<b>Kapanmis Trade'ler ({total_trades_count}):</b>\n"
+                f"  Gerceklesmis PnL: {realized_pnl:+,.0f} TL\n"
+                f"  Win Rate: {win_rate:.0f}%\n"
+                f"\n"
+                f"<b>Toplam PnL: {unrealized_pnl + realized_pnl:+,.0f} TL</b>"
             )
             await update.message.reply_text(text, parse_mode=ParseMode.HTML)
         except Exception:
@@ -503,24 +535,13 @@ class TelegramNotifier:
             signal_score=0,
         )
 
-        # Deduct cash
-        self.repo.add_cash_transaction(
-            -total_cost, "buy", related_trade_id=trade_id,
-            description=f"{symbol} alim {shares} lot @ {entry_price}",
-        )
-
-        # Add to holdings
-        self.repo.add_holding(
-            symbol=symbol, asset_type="stock",
-            shares=shares, cost_per_share=entry_price,
-        )
-
         sl_pct = (entry_price - sl) / entry_price * 100
         tp1_pct = (tp1 - entry_price) / entry_price * 100
         tp2_pct = (tp2 - entry_price) / entry_price * 100
         rr = round(tp1_pct / sl_pct, 1) if sl_pct > 0 else 0
-
-        balance = self.repo.get_cash_balance()
+        tp1_lots = int(shares * 0.50)
+        tp2_lots = int(shares * 0.30)
+        trail_lots = shares - tp1_lots - tp2_lots
 
         text = (
             f"✅ <b>ALIS KAYDEDILDI</b>\n"
@@ -530,11 +551,10 @@ class TelegramNotifier:
             f"\n"
             f"📐 <b>Otomatik TP/SL (ATR bazli):</b>\n"
             f"  🔴 SL: {sl:.2f} (-{sl_pct:.1f}%)\n"
-            f"  🎯 TP1: {tp1:.2f} (+{tp1_pct:.1f}%) — %50 sat\n"
-            f"  🎯 TP2: {tp2:.2f} (+{tp2_pct:.1f}%) — %30 sat\n"
+            f"  🎯 TP1: {tp1:.2f} (+{tp1_pct:.1f}%) — {tp1_lots} lot sat\n"
+            f"  🎯 TP2: {tp2:.2f} (+{tp2_pct:.1f}%) — {tp2_lots} lot sat\n"
+            f"  📉 Trailing Stop: kalan {trail_lots} lot\n"
             f"  R/R: {rr}x\n"
-            f"\n"
-            f"💰 Kalan nakit: {balance:,.0f} TL\n"
             f"\n"
             f"Pozisyon her 5 dk kontrol edilecek.\n"
             f"TP/SL tetiklenince bildirim gelecek."
@@ -613,41 +633,26 @@ class TelegramNotifier:
             pnl_pct=round(pnl_pct, 2),
         )
 
-        # Return cash
-        self.repo.add_cash_transaction(
-            sell_price * sell_shares, "sell", related_trade_id=trade_id,
-            description=f"{symbol} satis {sell_shares} lot @ {sell_price:.2f}",
-        )
-
         # Update trade status
-        remaining = trade.get("shares", 0) - sell_shares
         exits = self.repo.get_trade_exits(trade_id)
         total_exited = sum(e.get("shares", 0) for e in exits)
 
         if total_exited >= trade.get("shares", 0):
-            self.repo.update_trade_status(trade_id, "closed", realized_pnl=sum(e.get("pnl", 0) for e in exits))
+            total_pnl = sum(e.get("pnl", 0) for e in exits)
+            self.repo.update_trade_status(trade_id, "closed", realized_pnl=total_pnl)
             status_text = "KAPANDI"
-            # Remove from holdings
-            self.repo.remove_holding(symbol)
         else:
             self.repo.update_trade_status(trade_id, "partial_exit")
-            status_text = f"KISMI SATIS ({total_exited}/{trade.get('shares', 0)} lot)"
-            # Update holding shares
-            self.repo.add_holding(
-                symbol=symbol, asset_type="stock",
-                shares=trade.get("shares", 0) - total_exited,
-                cost_per_share=entry_price,
-            )
+            remaining = trade.get("shares", 0) - total_exited
+            status_text = f"KISMI SATIS (kalan {remaining:.0f} lot)"
 
-        balance = self.repo.get_cash_balance()
         emoji = "📈" if pnl >= 0 else "📉"
 
         text = (
             f"{emoji} <b>SATIS: {symbol}</b> — {status_text}\n"
             f"\n"
             f"#{trade_id} {sell_shares} lot @ {sell_price:.2f} TL\n"
-            f"PnL: {pnl:+,.0f} TL ({pnl_pct:+.1f}%)\n"
-            f"💰 Nakit: {balance:,.0f} TL"
+            f"PnL: {pnl:+,.0f} TL ({pnl_pct:+.1f}%)"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
