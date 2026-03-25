@@ -249,18 +249,28 @@ class TelegramNotifier:
         for symbol, trades in grouped.items():
             current = self._get_current_price(symbol)
 
-            # Calculate combined position
-            total_shares = sum(t.get("shares", 0) for t in trades)
-            total_cost = sum(t.get("entry_price", 0) * t.get("shares", 0) for t in trades)
-            avg_cost = total_cost / total_shares if total_shares > 0 else 0
+            # Calculate combined position (accounting for partial exits)
+            total_remaining = 0
+            total_cost = 0.0
+            for t in trades:
+                exits = self.repo.get_trade_exits(t["id"])
+                exited = sum(e.get("shares", 0) for e in exits)
+                remaining = t.get("shares", 0) - exited
+                if remaining > 0:
+                    total_remaining += remaining
+                    total_cost += t.get("entry_price", 0) * remaining
+            avg_cost = total_cost / total_remaining if total_remaining > 0 else 0
+
+            if total_remaining <= 0:
+                continue
 
             if current:
-                pnl = (current - avg_cost) * total_shares
+                pnl = (current - avg_cost) * total_remaining
                 pnl_pct = (current - avg_cost) / avg_cost * 100 if avg_cost else 0
                 emoji = "📈" if pnl >= 0 else "📉"
                 lines.append(
                     f"\n{emoji} <b>{symbol}</b> — {current:.2f} TL\n"
-                    f"  Toplam: {total_shares:.0f} lot | Ort. maliyet: {avg_cost:.2f}\n"
+                    f"  Toplam: {total_remaining:.0f} lot | Ort. maliyet: {avg_cost:.2f}\n"
                     f"  PnL: {pnl:+,.0f} TL ({pnl_pct:+.1f}%)\n"
                 )
             else:
@@ -295,12 +305,14 @@ class TelegramNotifier:
                 tp2_lots = int(shares * 0.30)
 
                 if current and tp2 and current >= tp2 and not tp2_exited:
-                    # Price above TP2
-                    if not tp1_exited:
-                        sell_lots = tp1_lots + tp2_lots
-                        detail += f"    ⚡ TP1+TP2 asildi! /sat {tid} {sell_lots} {current:.2f}\n"
+                    # Price above TP2 — suggest selling remaining TP lots
+                    target_exited = tp1_lots + tp2_lots  # should have exited this many
+                    still_to_sell = max(0, target_exited - exited_shares)
+                    still_to_sell = min(still_to_sell, remaining)
+                    if still_to_sell > 0:
+                        detail += f"    ⚡ TP1+TP2 asildi! /sat {tid} {still_to_sell:.0f} {current:.2f}\n"
                     else:
-                        detail += f"    ⚡ TP2 asildi! /sat {tid} {tp2_lots} {current:.2f}\n"
+                        detail += f"    ⚡ TP1+TP2 asildi, lotlar satildi.\n"
                     highest = current
                     if self.monitor and tid in self.monitor._highest_prices:
                         highest = self.monitor._highest_prices[tid]
@@ -309,7 +321,8 @@ class TelegramNotifier:
 
                 elif current and tp1 and current >= tp1 and not tp1_exited:
                     # Price above TP1
-                    detail += f"    🎯 TP1'e ulasildi! /sat {tid} {tp1_lots} {current:.2f}\n"
+                    sell_lots = min(tp1_lots, remaining)
+                    detail += f"    🎯 TP1'e ulasildi! /sat {tid} {sell_lots} {current:.2f}\n"
                     if tp2:
                         detail += f"    TP2: {tp2:.2f} bekle\n"
 
