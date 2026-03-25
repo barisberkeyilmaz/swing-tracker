@@ -34,6 +34,7 @@ class Monitor:
         self._repo = repo
         self._config = config
         self._highest_prices: dict[int, float] = {}  # trade_id -> highest price seen
+        self._alerted: set[tuple[int, str]] = set()  # (trade_id, alert_type) already sent
 
     def check_positions(self) -> list[Alert]:
         """Check all open positions for TP/SL hits.
@@ -49,6 +50,15 @@ class Monitor:
         for trade in open_trades:
             trade_id = trade["id"]
             symbol = trade["symbol"]
+
+            # Check remaining shares
+            exits = self._repo.get_trade_exits(trade_id)
+            total_shares = trade.get("shares", 0)
+            exited_shares = sum(e.get("shares", 0) for e in exits)
+            remaining = total_shares - exited_shares
+
+            if remaining <= 0:
+                continue
 
             try:
                 ticker = bp.Ticker(symbol)
@@ -85,7 +95,8 @@ class Monitor:
                     (direction == "long" and current_price <= sl) or
                     (direction == "short" and current_price >= sl)
                 )
-                if sl_hit:
+                if sl_hit and (trade_id, "sl") not in self._alerted:
+                    self._alerted.add((trade_id, "sl"))
                     alerts.append(Alert(
                         trade_id=trade_id,
                         symbol=symbol,
@@ -97,12 +108,17 @@ class Monitor:
                         message=(
                             f"STOP LOSS: {symbol}\n"
                             f"Giris: {entry_price:.2f} -> Simdi: {current_price:.2f}\n"
-                            f"Zarar: {pnl_pct:+.1f}%"
+                            f"Kalan: {remaining:.0f} lot\n"
+                            f"Zarar: {pnl_pct:+.1f}%\n"
+                            f"/sat {trade_id} {remaining:.0f} {current_price:.2f}"
                         ),
                     ))
-                    continue  # SL hit, no need to check TPs
+                    continue
 
-            # Check Take Profits (TP1 -> TP2 -> TP3)
+            # Check if TP levels already handled (by manual exit or tp exit)
+            any_exit_done = len(exits) > 0
+
+            # Check Take Profits
             for tp_key, tp_name in [
                 ("take_profit_1", "tp1"),
                 ("take_profit_2", "tp2"),
@@ -116,39 +132,47 @@ class Monitor:
                     (direction == "long" and current_price >= tp) or
                     (direction == "short" and current_price <= tp)
                 )
-                if tp_hit:
-                    # Check if already exited at this level
-                    exits = self._repo.get_trade_exits(trade_id)
-                    already_exited = any(e["exit_type"] == tp_name for e in exits)
 
-                    if not already_exited:
-                        alerts.append(Alert(
-                            trade_id=trade_id,
-                            symbol=symbol,
-                            alert_type=tp_name,
-                            current_price=current_price,
-                            target_price=tp,
-                            entry_price=entry_price,
-                            pnl_pct=round(pnl_pct, 2),
-                            message=(
-                                f"{tp_name.upper()} ULASILDI: {symbol}\n"
-                                f"Giris: {entry_price:.2f} -> Simdi: {current_price:.2f}\n"
-                                f"Kar: {pnl_pct:+.1f}%"
-                            ),
-                        ))
+                if tp_hit and (trade_id, tp_name) not in self._alerted:
+                    # Skip if already exited at this level (manual or auto)
+                    already_exited = any(
+                        e["exit_type"] in (tp_name, "manual") and e.get("price", 0) >= tp * 0.98
+                        for e in exits
+                    )
+                    if already_exited:
+                        self._alerted.add((trade_id, tp_name))
+                        continue
 
-            # Check trailing stop (after TP1)
-            if self._config.monitor.trailing_stop_enabled:
-                exits = self._repo.get_trade_exits(trade_id)
-                tp1_exited = any(e["exit_type"] == "tp1" for e in exits)
+                    self._alerted.add((trade_id, tp_name))
+                    tp_pct = 0.50 if tp_name == "tp1" else 0.30 if tp_name == "tp2" else 0.20
+                    suggested_lots = min(int(total_shares * tp_pct), remaining)
 
-                if tp1_exited and direction == "long":
+                    alerts.append(Alert(
+                        trade_id=trade_id,
+                        symbol=symbol,
+                        alert_type=tp_name,
+                        current_price=current_price,
+                        target_price=tp,
+                        entry_price=entry_price,
+                        pnl_pct=round(pnl_pct, 2),
+                        message=(
+                            f"{tp_name.upper()} ULASILDI: {symbol}\n"
+                            f"Giris: {entry_price:.2f} -> Simdi: {current_price:.2f}\n"
+                            f"Kar: {pnl_pct:+.1f}%\n"
+                            f"Kalan: {remaining:.0f} lot\n"
+                            f"/sat {trade_id} {suggested_lots} {current_price:.2f}"
+                        ),
+                    ))
+
+            # Check trailing stop (after any exit done)
+            if self._config.monitor.trailing_stop_enabled and any_exit_done:
+                if direction == "long" and (trade_id, "trailing_stop") not in self._alerted:
                     highest = self._highest_prices.get(trade_id, current_price)
-                    # Simple trailing: if price drops X% from highest
                     trailing_pct = self._config.monitor.trailing_stop_atr_mult * 2
                     trail_level = highest * (1 - trailing_pct / 100)
 
                     if current_price <= trail_level:
+                        self._alerted.add((trade_id, "trailing_stop"))
                         alerts.append(Alert(
                             trade_id=trade_id,
                             symbol=symbol,
@@ -160,7 +184,9 @@ class Monitor:
                             message=(
                                 f"TRAILING STOP: {symbol}\n"
                                 f"En yuksek: {highest:.2f} -> Simdi: {current_price:.2f}\n"
-                                f"Kar: {pnl_pct:+.1f}%"
+                                f"Kar: {pnl_pct:+.1f}%\n"
+                                f"Kalan: {remaining:.0f} lot\n"
+                                f"/sat {trade_id} {remaining:.0f} {current_price:.2f}"
                             ),
                         ))
 
@@ -171,5 +197,9 @@ class Monitor:
         open_ids = {t["id"] for t in self._repo.get_open_trades()}
         self._highest_prices = {
             tid: price for tid, price in self._highest_prices.items()
+            if tid in open_ids
+        }
+        self._alerted = {
+            (tid, atype) for tid, atype in self._alerted
             if tid in open_ids
         }
