@@ -388,8 +388,7 @@ class TelegramNotifier:
         await update.message.reply_text("🔍 Tarama basliyor...")
 
         try:
-            cash = self.portfolio.available_cash()
-            result = self.scanner.run_quick_scan(available_cash=cash)
+            result = self.scanner.run_quick_scan()
 
             if not result.market_bullish:
                 await update.message.reply_text(
