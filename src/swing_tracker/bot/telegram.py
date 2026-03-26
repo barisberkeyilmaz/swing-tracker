@@ -773,12 +773,10 @@ class TelegramNotifier:
 
     async def notify_daily_report(
         self,
-        portfolio_value: float,
-        cash_balance: float,
-        swing_pnl: float,
         open_trades: list[dict],
         new_signals: list,
         market_bullish: bool = True,
+        **_kwargs,
     ) -> None:
         """Send daily summary report."""
         if not self._config.notify_daily_report:
@@ -790,23 +788,28 @@ class TelegramNotifier:
         text = (
             f"📊 <b>Gunluk Rapor</b>\n"
             f"\nPiyasa: {market_emoji} {market_text}\n"
-            f"💼 Portfoy: {portfolio_value:,.0f} TL\n"
-            f"💰 Nakit: {cash_balance:,.0f} TL\n"
-            f"📈 Swing PnL: {swing_pnl:+,.0f} TL\n"
         )
 
+        # Calculate PnL from trades
+        total_pnl = 0.0
         if open_trades:
-            text += f"\n<b>Acik Pozisyonlar:</b>\n"
+            text += f"\n<b>Acik Pozisyonlar ({len(open_trades)}):</b>\n"
             for trade in open_trades[:5]:
                 symbol = trade.get("symbol", "?")
                 entry = trade.get("entry_price", 0)
+                shares = trade.get("shares", 0)
                 current = self._get_current_price(symbol)
                 if current and entry:
                     pnl_pct = (current - entry) / entry * 100
+                    pnl = (current - entry) * shares
+                    total_pnl += pnl
                     emoji = "📈" if pnl_pct >= 0 else "📉"
-                    text += f"  {emoji} {symbol}: {pnl_pct:+.1f}%\n"
+                    text += f"  {emoji} {symbol}: {pnl_pct:+.1f}% ({pnl:+,.0f} TL)\n"
                 else:
                     text += f"  ❓ {symbol}: fiyat alinamadi\n"
+            text += f"\nToplam PnL: <b>{total_pnl:+,.0f} TL</b>\n"
+        else:
+            text += "\nAcik pozisyon yok.\n"
 
         if new_signals:
             text += f"\n<b>Yeni Sinyaller ({len(new_signals)}):</b>\n"

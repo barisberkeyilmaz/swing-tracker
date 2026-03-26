@@ -74,8 +74,7 @@ def job_quick_scan(scanner: Scanner, portfolio: PortfolioManager, notifier: Tele
     """Quick scan job: runs every 30 minutes during market hours."""
     logger.info("Quick scan basliyor...")
     try:
-        cash = portfolio.available_cash()
-        result = scanner.run_quick_scan(available_cash=cash)
+        result = scanner.run_quick_scan()
 
         if not result.market_bullish:
             logger.info("Ayi piyasasi — sinyal gonderilmiyor")
@@ -93,18 +92,10 @@ def job_deep_scan(scanner: Scanner, portfolio: PortfolioManager, notifier: Teleg
     """Deep scan job: runs daily after market close."""
     logger.info("Deep scan basliyor...")
     try:
-        cash = portfolio.available_cash()
-        result = scanner.run_deep_scan(available_cash=cash)
-
-        # Send daily report
-        summary = portfolio.get_summary()
-        swing = portfolio.get_swing_summary()
+        result = scanner.run_deep_scan()
         open_trades = scanner._repo.get_open_trades()
 
         _run_async(notifier.notify_daily_report(
-            portfolio_value=summary.total_value,
-            cash_balance=summary.cash_balance,
-            swing_pnl=swing.unrealized_pnl + swing.realized_pnl,
             open_trades=open_trades,
             new_signals=result.candidates,
             market_bullish=result.market_bullish,
