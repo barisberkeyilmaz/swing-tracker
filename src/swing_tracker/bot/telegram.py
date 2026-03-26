@@ -704,13 +704,28 @@ class TelegramNotifier:
         score_bar = "█" * score + "░" * (8 - score)
         reasons_text = " | ".join(candidate.reasons)
 
+        # USD trend indicator
+        if candidate.usd_trend_ok is True:
+            usd_text = f"${candidate.usd_price:.2f} ✅"
+        elif candidate.usd_trend_ok is False:
+            usd_text = f"${candidate.usd_price:.2f} ⚠️"
+        else:
+            usd_text = ""
+
+        price_line = f"Fiyat: <b>{candidate.price:.2f} TL</b>"
+        if usd_text:
+            price_line += f" ({usd_text})"
+
         text = (
             f"🟢 <b>AL SiNYALi: {candidate.symbol}</b>\n"
             f"\n"
-            f"Fiyat: <b>{candidate.price:.2f} TL</b>\n"
+            f"{price_line}\n"
             f"Skor: [{score_bar}] {score}/8\n"
             f"Sinyaller: {reasons_text}\n"
         )
+
+        if candidate.usd_trend_ok is False:
+            text += "⚠️ USD bazinda trend zayif — TL deger kaybi kaynakli olabilir\n"
 
         if candidate.daily_rsi is not None:
             text += f"Gunluk RSI: {candidate.daily_rsi:.0f}"

@@ -38,6 +38,8 @@ class ScoredCandidate:
     analysis: AnalysisResult
     daily_rsi: float | None = None
     hourly_rsi: float | None = None
+    usd_price: float | None = None
+    usd_trend_ok: bool | None = None  # price > SMA100 in USD terms
 
 
 @dataclass
@@ -55,6 +57,22 @@ class Scanner:
         self._repo = repo
         self._config = config
         self._market_bullish: bool | None = None
+        self._usdtry_rate: float | None = None
+
+    def _get_usdtry(self) -> float | None:
+        """Get current USDTRY rate."""
+        if self._usdtry_rate is not None:
+            return self._usdtry_rate
+        try:
+            import yfinance as yf
+            fx = yf.Ticker("USDTRY=X").history(period="5d", interval="1d")
+            if fx is not None and len(fx) > 0:
+                fx.index = fx.index.tz_localize(None) if fx.index.tz is not None else fx.index
+                self._usdtry_rate = float(fx.iloc[-1]["Close"])
+                return self._usdtry_rate
+        except Exception:
+            logger.warning("USDTRY kuru alinamadi")
+        return None
 
     def check_market_regime(self) -> bool:
         """Check if market index is above SMA 50 (bull market)."""
@@ -190,6 +208,18 @@ class Scanner:
                 score=score * 10,
             )
 
+            # USD trend check
+            usd_price = None
+            usd_trend_ok = None
+            rate = self._get_usdtry()
+            if rate and rate > 0:
+                usd_price = round(price / rate, 4)
+                # Calculate USD SMA 100
+                usd_closes = df_daily["Close"] / rate
+                usd_sma_100 = usd_closes.rolling(100).mean().iloc[-1]
+                if pd.notna(usd_sma_100):
+                    usd_trend_ok = usd_price > usd_sma_100
+
             return ScoredCandidate(
                 symbol=symbol,
                 price=price,
@@ -198,6 +228,8 @@ class Scanner:
                 analysis=analysis,
                 daily_rsi=daily_rsi,
                 hourly_rsi=hourly_rsi,
+                usd_price=usd_price,
+                usd_trend_ok=usd_trend_ok,
             )
 
         except Exception:
