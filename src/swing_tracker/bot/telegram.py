@@ -68,6 +68,7 @@ class TelegramNotifier:
                 app.add_handler(CommandHandler("pozisyon", self._cmd_pozisyon))
                 app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
                 app.add_handler(CommandHandler("scan", self._cmd_scan))
+                app.add_handler(CommandHandler("yakin", self._cmd_yakin))
                 app.add_handler(CommandHandler("al", self._cmd_al))
                 app.add_handler(CommandHandler("sat", self._cmd_sat))
                 app.add_handler(CommandHandler("yardim", self._cmd_yardim))
@@ -103,6 +104,7 @@ class TelegramNotifier:
             "/pozisyon — Acik pozisyonlar ve canli PnL\n"
             "/sinyal — Son sinyaller\n"
             "/scan — Manuel tarama baslat\n"
+            "/yakin — Sinyale yakin hisseler (skor detayi)\n"
             "\n"
             "<b>Islem:</b>\n"
             "/al THYAO 315.50 100 — Alis kaydet (sembol fiyat lot)\n"
@@ -421,6 +423,85 @@ class TelegramNotifier:
             await update.message.reply_text("".join(lines), parse_mode=ParseMode.HTML)
         except Exception:
             logger.exception("Manuel scan hatasi")
+            await update.message.reply_text("Tarama sirasinda hata olustu.")
+
+    async def _cmd_yakin(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show all candidates with their scores, including trend failures."""
+        if not self.scanner:
+            await update.message.reply_text("Scanner hazir degil.")
+            return
+
+        await update.message.reply_text("🔍 Adaylar taranıyor...")
+
+        try:
+            import borsapy as bp
+
+            # Get prefilter candidates
+            universe = self.scanner._config.scanner.universe
+            candidate_symbols: set[str] = set()
+            for prefilter in self.scanner._config.scanner.prefilters:
+                try:
+                    result = bp.scan(universe, prefilter, interval="1d")
+                    if result is not None and not result.empty and "symbol" in result.columns:
+                        candidate_symbols.update(str(s) for s in result["symbol"].tolist())
+                except Exception:
+                    pass
+
+            if not candidate_symbols:
+                await update.message.reply_text("Prefilter'dan gecen aday yok.")
+                return
+
+            # Score all candidates
+            all_scored: list[dict] = []
+            for symbol in candidate_symbols:
+                scored = self.scanner._score_symbol_all(symbol)
+                if scored and scored["score"] > 0:
+                    all_scored.append(scored)
+
+            if not all_scored:
+                await update.message.reply_text(
+                    f"{len(candidate_symbols)} aday tarandi, hicbirinde sinyal yok."
+                )
+                return
+
+            all_scored.sort(key=lambda x: (-x["score"], -int(x["trend_ok"])))
+
+            # Group by score
+            score_groups: dict[int, list[dict]] = {}
+            for s in all_scored:
+                score_groups.setdefault(s["score"], []).append(s)
+
+            lines = [f"📊 <b>Sinyale Yakin Hisseler</b>\n"]
+
+            for score in sorted(score_groups.keys(), reverse=True):
+                group = score_groups[score]
+                remaining = 5 - score
+                if score >= 5:
+                    emoji = "🟢"
+                    label = "SiNYAL"
+                elif score >= 4:
+                    emoji = "🟡"
+                    label = f"{remaining} puan kaldi"
+                elif score >= 3:
+                    emoji = "🔵"
+                    label = f"{remaining} puan kaldi"
+                else:
+                    emoji = "⚪"
+                    label = f"{remaining} puan kaldi"
+
+                lines.append(f"\n{emoji} <b>Skor {score}/8 ({label}):</b>")
+                for s in group:
+                    trend = "✅" if s["trend_ok"] else "❌trend"
+                    reasons = " ".join(s["reasons"]) if s["reasons"] else "-"
+                    lines.append(
+                        f"  {s['symbol']:>8} {s['price']:>8.2f} TL {trend} | {reasons}"
+                    )
+
+            lines.append(f"\n{len(candidate_symbols)} aday tarandi")
+            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+        except Exception:
+            logger.exception("Yakin komutu hatasi")
             await update.message.reply_text("Tarama sirasinda hata olustu.")
 
     async def _cmd_nakit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

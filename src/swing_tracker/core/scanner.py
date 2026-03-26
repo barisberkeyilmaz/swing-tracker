@@ -236,6 +236,77 @@ class Scanner:
             logger.exception(f"{symbol}: Analiz hatasi")
             return None
 
+    def _score_symbol_all(self, symbol: str) -> dict | None:
+        """Score a symbol returning all details including trend fail status."""
+        try:
+            ticker = bp.Ticker(symbol)
+            df_daily = ticker.history(period="6mo", interval="1d")
+            if df_daily is None or len(df_daily) < 50:
+                return None
+            df_daily = _add_all_indicators(df_daily)
+            df_daily["Vol_Avg_20"] = df_daily["Volume"].rolling(20).mean()
+
+            last_daily = df_daily.iloc[-1]
+            price = float(last_daily["Close"])
+
+            # Trend check
+            if "SMA_100" not in df_daily.columns:
+                df_daily["SMA_100"] = bp.calculate_sma(df_daily, period=100)
+                last_daily = df_daily.iloc[-1]
+            sma_100 = float(last_daily["SMA_100"]) if pd.notna(last_daily.get("SMA_100")) else None
+            trend_ok = sma_100 is not None and price > sma_100
+
+            # Score signals
+            score = 0
+            reasons: list[str] = []
+
+            rsi = float(last_daily.get("RSI_14", 50)) if pd.notna(last_daily.get("RSI_14")) else None
+            if rsi is not None and rsi < 45:
+                score += 2
+                reasons.append(f"RSI={rsi:.0f}(+2)")
+
+            macd = float(last_daily.get("MACD", 0)) if pd.notna(last_daily.get("MACD")) else None
+            signal_val = float(last_daily.get("Signal", 0)) if pd.notna(last_daily.get("Signal")) else None
+            if macd is not None and signal_val is not None and macd < signal_val:
+                score += 1
+                reasons.append("MACD<Sig(+1)")
+
+            bb_lower = float(last_daily.get("BB_Lower", 0)) if pd.notna(last_daily.get("BB_Lower")) else None
+            if bb_lower is not None and bb_lower > 0:
+                dist = (price - bb_lower) / bb_lower * 100
+                if dist < 3.0:
+                    score += 2
+                    reasons.append(f"BB={dist:.1f}%(+2)")
+
+            # Hourly RSI
+            df_hourly = ticker.history(period="5d", interval="1h")
+            if df_hourly is not None and len(df_hourly) >= 3:
+                df_hourly = _add_all_indicators(df_hourly)
+                h_last = df_hourly.iloc[-1]
+                h_prev = df_hourly.iloc[-2]
+                h_rsi = float(h_last.get("RSI_14", 50)) if pd.notna(h_last.get("RSI_14")) else None
+                h_prev_rsi = float(h_prev.get("RSI_14", 50)) if pd.notna(h_prev.get("RSI_14")) else None
+                if h_rsi is not None and h_prev_rsi is not None and h_prev_rsi < 40 and h_rsi >= 40:
+                    score += 2
+                    reasons.append(f"H_RSI={h_prev_rsi:.0f}->{h_rsi:.0f}(+2)")
+
+            volume = float(last_daily.get("Volume", 0))
+            vol_avg = float(last_daily.get("Vol_Avg_20", 0)) if pd.notna(last_daily.get("Vol_Avg_20")) else None
+            if vol_avg and vol_avg > 0 and volume > vol_avg:
+                score += 1
+                reasons.append(f"Hacim={volume / vol_avg:.1f}x(+1)")
+
+            return {
+                "symbol": symbol,
+                "price": price,
+                "score": score,
+                "reasons": reasons,
+                "trend_ok": trend_ok,
+                "sma_100": sma_100,
+            }
+        except Exception:
+            return None
+
     def run_quick_scan(self, available_cash: float = 0) -> ScanResult:
         """Quick scan with score-based multi-timeframe strategy.
 
