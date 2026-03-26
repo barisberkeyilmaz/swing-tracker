@@ -250,12 +250,16 @@ def _check_entry(row: pd.Series, prev_row: pd.Series, config: BacktestConfig) ->
 
     # Daily indicators (from aligned data, prefixed with d_)
     d_close = _safe_float(row, "d_close")
-    d_sma_50 = _safe_float(row, "d_sma_50")
 
-    # MANDATORY: Trend filter — price must be above SMA 50
-    if d_close is None or d_sma_50 is None:
+    # MANDATORY: Trend filter — price must be above SMA (configurable period)
+    sma_col = f"d_sma_{config.trend_sma_period}"
+    d_sma = _safe_float(row, sma_col)
+    # Fallback to sma_50 if specific period not available
+    if d_sma is None:
+        d_sma = _safe_float(row, "d_sma_50") or _safe_float(row, "d_sma_100") or _safe_float(row, "d_sma_200")
+    if d_close is None or d_sma is None:
         return 0, []
-    if d_close <= d_sma_50:
+    if d_close <= d_sma:
         return 0, []
 
     # Signal 1: Daily RSI pullback

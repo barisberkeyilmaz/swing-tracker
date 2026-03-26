@@ -32,7 +32,7 @@ class BacktestConfig:
     timeframe_mode: str = "multi"
 
     # Strategy params — score-based entry
-    trend_sma_period: int = 50
+    trend_sma_period: int = 100
     min_entry_score: int = 4  # minimum skor for entry
     # Individual signal scores
     rsi_pullback_threshold: float = 45.0

@@ -113,6 +113,7 @@ def _add_indicators_manual(df: pd.DataFrame) -> pd.DataFrame:
     # SMA
     df["SMA_20"] = df["Close"].rolling(20).mean()
     df["SMA_50"] = df["Close"].rolling(50).mean()
+    df["SMA_100"] = df["Close"].rolling(100).mean()
     df["SMA_200"] = df["Close"].rolling(200).mean()
 
     # EMA
@@ -215,7 +216,7 @@ def align_timeframes(daily: pd.DataFrame, hourly: pd.DataFrame) -> pd.DataFrame:
     Each hourly bar gets the PREVIOUS day's daily indicators to avoid look-ahead bias.
     """
     # Extract daily columns we need
-    daily_cols = ["Close", "RSI_14", "RSI", "SMA_50", "SMA_200", "ATR", "ATR_14",
+    daily_cols = ["Close", "RSI_14", "RSI", "SMA_50", "SMA_100", "SMA_200", "ATR", "ATR_14",
                   "MACD", "Signal", "Vol_Avg_20", "BB_Upper", "BB_Lower"]
     available_cols = [c for c in daily_cols if c in daily.columns]
 

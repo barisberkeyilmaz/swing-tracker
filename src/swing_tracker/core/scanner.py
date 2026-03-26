@@ -106,9 +106,12 @@ class Scanner:
             prev_daily = df_daily.iloc[-2]
             price = float(last_daily["Close"])
 
-            # MANDATORY: trend filter — price > SMA 50
-            sma_50 = float(last_daily["SMA_50"]) if pd.notna(last_daily.get("SMA_50")) else None
-            if sma_50 is None or price <= sma_50:
+            # MANDATORY: trend filter — price > SMA 100
+            if "SMA_100" not in df_daily.columns:
+                df_daily["SMA_100"] = bp.calculate_sma(df_daily, period=100)
+                last_daily = df_daily.iloc[-1]
+            sma_100 = float(last_daily["SMA_100"]) if pd.notna(last_daily.get("SMA_100")) else None
+            if sma_100 is None or price <= sma_100:
                 return None
 
             score = 0

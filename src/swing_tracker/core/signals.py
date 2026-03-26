@@ -100,6 +100,7 @@ def _add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     )
     # Additional SMAs for trend analysis
     df["SMA_50"] = bp.calculate_sma(df, period=50)
+    df["SMA_100"] = bp.calculate_sma(df, period=100)
     df["SMA_200"] = bp.calculate_sma(df, period=200)
     df["EMA_26"] = bp.calculate_ema(df, period=26)
     return df
