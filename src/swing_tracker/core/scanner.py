@@ -233,7 +233,7 @@ class Scanner:
             )
 
         except Exception:
-            logger.warning(f"{symbol}: Analiz hatasi")
+            logger.exception(f"{symbol}: Analiz hatasi")
             return None
 
     def run_quick_scan(self, available_cash: float = 0) -> ScanResult:
