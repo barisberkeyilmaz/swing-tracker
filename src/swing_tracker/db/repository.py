@@ -174,6 +174,17 @@ class Repository:
         self._conn.commit()
         return cur.lastrowid
 
+    def has_recent_signal(self, symbol: str, signal_type: str, hours: int = 24) -> bool:
+        """Check if a signal was already logged for this symbol within the last N hours."""
+        row = self._conn.execute(
+            """SELECT 1 FROM signals_log
+               WHERE symbol = ? AND signal_type = ?
+               AND created_at > datetime('now', ?)
+               LIMIT 1""",
+            (symbol, signal_type, f"-{hours} hours"),
+        ).fetchone()
+        return row is not None
+
     def get_recent_signals(self, limit: int = 20) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM signals_log ORDER BY created_at DESC LIMIT ?", (limit,)

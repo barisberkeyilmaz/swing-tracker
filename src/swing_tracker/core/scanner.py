@@ -181,7 +181,7 @@ class Scanner:
                 score += 1
                 reasons.append(f"Hacim={volume / vol_avg:.1f}x")
 
-            if score < 5:
+            if score < 4:
                 return None
 
             # Build full analysis for TP/SL levels
@@ -419,8 +419,11 @@ class Scanner:
             market_bullish=is_bull,
         )
 
-    def _log_scored_signal(self, scored: ScoredCandidate) -> None:
-        """Log scored signal to database."""
+    def _log_scored_signal(self, scored: ScoredCandidate) -> bool:
+        """Log scored signal to database if not already logged in last 24h."""
+        if self._repo.has_recent_signal(scored.symbol, "buy"):
+            logger.debug(f"{scored.symbol}: Son 24 saatte sinyal var, atlanıyor")
+            return False
         self._repo.log_signal(
             symbol=scored.symbol,
             signal_type="buy",

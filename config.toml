@@ -49,8 +49,8 @@ market_filter_enabled = true
 market_index = "XU100"
 market_sma_period = 100
 
-# Skor bazli giris: min 5 puan gerekli
-min_entry_score = 5
+# Skor bazli giris: min 4 puan gerekli
+min_entry_score = 4
 trend_sma_period = 100
 rsi_pullback_threshold = 45      # Gunluk RSI < 45 → +2 puan
 rsi_pullback_score = 2
@@ -60,12 +60,12 @@ hourly_rsi_reversal_threshold = 40 # Saatlik RSI donus → +2 puan
 hourly_rsi_reversal_score = 2
 volume_above_avg_score = 1        # Hacim > ortalama → +1 puan
 volume_avg_period = 20
-trailing_stop_pct = 0.20
+trailing_stop_pct = 0.25
 
 [strategy.default]
 min_score = 30
-sl_atr_mult = 1.5
-tp1_atr_mult = 1.5
+sl_atr_mult = 2.5
+tp1_atr_mult = 2.0
 tp2_atr_mult = 3.0
 tp3_atr_mult = 4.5
 tp1_exit_pct = 0.50
