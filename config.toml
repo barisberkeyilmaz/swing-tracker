@@ -6,7 +6,7 @@ timezone = "Europe/Istanbul"
 
 [portfolio]
 benchmark = "XU100"
-initial_cash = 60000
+initial_cash = 0
 monthly_deposit = 30000
 max_swing_positions = 5
 risk_per_trade_pct = 2.0

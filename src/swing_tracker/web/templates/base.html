@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="tr" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Swing Tracker{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        surface: { DEFAULT: '#1a1a2e', light: '#16213e', card: '#0f3460' },
+                        accent: { DEFAULT: '#e94560', green: '#00b894', yellow: '#fdcb6e' },
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+    </style>
+</head>
+<body class="dark h-full bg-surface text-gray-100">
+    <!-- Navbar -->
+    <nav class="bg-surface-light border-b border-gray-700/50 px-4 sm:px-6 py-3">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/" class="text-xl font-bold text-white tracking-tight">
+                    Swing<span class="text-accent">Tracker</span>
+                </a>
+                <div class="hidden md:flex items-center gap-1">
+                    <a href="/" class="px-3 py-1.5 rounded-lg text-sm font-medium
+                        {% block nav_dashboard %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %}">
+                        Dashboard
+                    </a>
+                    <a href="/portfolio" class="px-3 py-1.5 rounded-lg text-sm font-medium
+                        {% block nav_portfolio %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %}">
+                        Portfoy
+                    </a>
+                    <a href="/signals" class="px-3 py-1.5 rounded-lg text-sm font-medium
+                        {% block nav_signals %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %}">
+                        Sinyaller
+                    </a>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="hidden sm:block text-sm text-gray-500">
+                    {{ now.strftime('%d.%m.%Y %H:%M') if now else '' }}
+                </span>
+                <button id="menuToggle" class="md:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <!-- Mobil Menu -->
+        <div id="mobileMenu" class="hidden md:hidden border-t border-gray-700/50 px-4 py-2">
+            <a href="/" class="block px-3 py-3 rounded-lg text-sm font-medium {% block mobile_nav_dashboard %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %} transition-colors">
+                Dashboard
+            </a>
+            <a href="/portfolio" class="block px-3 py-3 rounded-lg text-sm font-medium {% block mobile_nav_portfolio %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %} transition-colors">
+                Portfoy
+            </a>
+            <a href="/signals" class="block px-3 py-3 rounded-lg text-sm font-medium {% block mobile_nav_signals %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %} transition-colors">
+                Sinyaller
+            </a>
+        </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+        {% block content %}{% endblock %}
+    </main>
+<script>
+const menuToggle = document.getElementById('menuToggle');
+const mobileMenu = document.getElementById('mobileMenu');
+if (menuToggle && mobileMenu) {
+    menuToggle.addEventListener('click', () => {
+        mobileMenu.classList.toggle('hidden');
+    });
+}
+</script>
+</body>
+</html>

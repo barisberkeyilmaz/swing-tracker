@@ -125,6 +125,13 @@ class Repository:
         )
         self._conn.commit()
 
+    def delete_trade(self, trade_id: int) -> None:
+        """Delete a trade, its exits, and related cash transactions."""
+        self._conn.execute("DELETE FROM trade_exits WHERE trade_id = ?", (trade_id,))
+        self._conn.execute("DELETE FROM cash_transactions WHERE related_trade_id = ?", (trade_id,))
+        self._conn.execute("DELETE FROM swing_trades WHERE id = ?", (trade_id,))
+        self._conn.commit()
+
     # ── Trade Exits ──
 
     def record_exit(
