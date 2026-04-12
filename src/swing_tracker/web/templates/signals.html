@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}Sinyaller — Swing Tracker{% endblock %}
+{% block nav_signals %}text-white bg-white/10{% endblock %}
+{% block mobile_nav_signals %}text-white bg-white/10{% endblock %}
+
+{% block content %}
+<div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-700/30 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Sinyal Gecmisi</h2>
+        <span class="text-xs text-gray-500">Son {{ signals|length }} sinyal</span>
+    </div>
+
+    {% if signals %}
+    <div class="hidden md:block overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase border-b border-gray-700/30">
+                    <th class="px-5 py-3">Tarih</th>
+                    <th class="px-3 py-3">Sembol</th>
+                    <th class="px-3 py-3">Guc</th>
+                    <th class="px-3 py-3 text-right">Fiyat</th>
+                    <th class="px-3 py-3 text-right">Skor</th>
+                    <th class="px-3 py-3">Nedenler</th>
+                    <th class="px-3 py-3"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700/20">
+                {% for sig in signals %}
+                <tr class="hover:bg-white/[0.02] transition-colors">
+                    <td class="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
+                        {{ sig.created_at[:16] if sig.created_at else '-' }}
+                    </td>
+                    <td class="px-3 py-3 font-semibold text-white">{{ sig.symbol }}</td>
+                    <td class="px-3 py-3">
+                        <span class="px-2 py-0.5 rounded text-xs
+                            {% if sig.strength == 'strong' %}bg-accent-green/10 text-accent-green
+                            {% else %}bg-accent-yellow/10 text-accent-yellow{% endif %}">
+                            {{ sig.strength }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-3 text-right text-white">{{ "%.2f"|format(sig.price_at_signal) }}</td>
+                    <td class="px-3 py-3 text-right">
+                        {% if sig.score %}
+                        <span class="inline-flex items-center gap-1">
+                            <span class="text-white font-medium">{{ sig.score }}</span>
+                            <div class="w-12 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full
+                                    {% if sig.score >= 60 %}bg-accent-green
+                                    {% elif sig.score >= 40 %}bg-accent-yellow
+                                    {% else %}bg-gray-500{% endif %}"
+                                    style="width: {{ [sig.score, 100]|min }}%">
+                                </div>
+                            </div>
+                        </span>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="px-3 py-3 text-gray-400 text-xs max-w-xs truncate">
+                        {% if sig.indicator_values is mapping %}
+                            {{ sig.indicator_values.get('reasons', sig.indicator or '') }}
+                        {% else %}
+                            {{ sig.indicator or '' }}
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-3">
+                        {% if sig.signal_type == 'buy' and not sig.acted_on %}
+                        <button onclick="openBuyModal('{{ sig.symbol }}', {{ sig.price_at_signal }}, {{ sig.score or 0 }}, '{{ sig.indicator_values.get('reasons', '') if sig.indicator_values is mapping else '' }}')"
+                            class="px-3 py-1 rounded bg-accent-green/80 hover:bg-accent-green text-white text-xs font-medium transition-colors">
+                            Al
+                        </button>
+                        {% elif sig.acted_on %}
+                        <span class="text-xs text-accent-green">Islendi</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="md:hidden divide-y divide-gray-700/30">
+        {% for sig in signals %}
+        <div class="px-4 py-3">
+            <div class="flex items-center justify-between mb-1.5">
+                <span class="text-white font-semibold">{{ sig.symbol }}</span>
+                <span class="px-2 py-0.5 rounded text-xs
+                    {% if sig.strength == 'strong' %}bg-accent-green/10 text-accent-green
+                    {% else %}bg-accent-yellow/10 text-accent-yellow{% endif %}">
+                    {{ sig.strength }}
+                </span>
+            </div>
+            <div class="flex items-center justify-between mb-1.5">
+                <span class="text-sm text-white">{{ "%.2f"|format(sig.price_at_signal) }} TL</span>
+                {% if sig.score %}
+                <span class="inline-flex items-center gap-1.5 text-sm">
+                    <span class="text-white font-medium">{{ sig.score }}</span>
+                    <div class="w-12 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full
+                            {% if sig.score >= 60 %}bg-accent-green
+                            {% elif sig.score >= 40 %}bg-accent-yellow
+                            {% else %}bg-gray-500{% endif %}"
+                            style="width: {{ [sig.score, 100]|min }}%">
+                        </div>
+                    </div>
+                </span>
+                {% endif %}
+            </div>
+            {% if sig.indicator_values is mapping %}
+            <p class="text-xs text-gray-500 truncate mb-1.5">
+                {{ sig.indicator_values.get('reasons', sig.indicator or '') }}
+            </p>
+            {% elif sig.indicator %}
+            <p class="text-xs text-gray-500 truncate mb-1.5">{{ sig.indicator }}</p>
+            {% endif %}
+            <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-600">{{ sig.created_at[:16] if sig.created_at else '-' }}</span>
+                {% if sig.signal_type == 'buy' and not sig.acted_on %}
+                <button onclick="openBuyModal('{{ sig.symbol }}', {{ sig.price_at_signal }}, {{ sig.score or 0 }}, '{{ sig.indicator_values.get('reasons', '') if sig.indicator_values is mapping else '' }}')"
+                    class="px-3 py-2 min-h-[44px] rounded bg-accent-green/80 hover:bg-accent-green text-white text-xs font-medium transition-colors">
+                    Al
+                </button>
+                {% elif sig.acted_on %}
+                <span class="text-xs text-accent-green">Islendi</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-5 py-12 text-center text-gray-500">
+        <p class="text-lg mb-1">Henuz sinyal yok</p>
+        <p class="text-sm">Scanner calistiktan sonra sinyaller burada gorunecek.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Alim Modal -->
+<div id="buyModal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60" onclick="closeBuyModal()"></div>
+    <div class="absolute inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-md overflow-y-auto max-h-[calc(100vh-2rem)]">
+        <div class="bg-surface-light rounded-xl border border-gray-700/30 p-6">
+            <div class="flex items-center justify-between mb-5">
+                <h3 class="text-lg font-semibold text-white">
+                    <span id="modalSymbol"></span> — Pozisyon Ac
+                </h3>
+                <button onclick="closeBuyModal()" class="text-gray-500 hover:text-white text-xl">&times;</button>
+            </div>
+
+            <form action="/signals/buy" method="post" id="buyForm">
+                <input type="hidden" name="symbol" id="formSymbol">
+                <input type="hidden" name="signal_score" id="formScore">
+                <input type="hidden" name="reasons" id="formReasons">
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Giris Fiyati (TL)</label>
+                        <input type="number" name="entry_price" id="formPrice" step="0.01" required
+                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Lot</label>
+                        <input type="number" name="shares" id="formShares" step="1" min="1" required
+                            oninput="updateCost()"
+                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none">
+                    </div>
+                    <div class="bg-surface rounded-lg p-3 text-sm">
+                        <div class="flex justify-between text-gray-400">
+                            <span>Toplam Maliyet</span>
+                            <span id="totalCost" class="text-white font-medium">0 TL</span>
+                        </div>
+                        <div class="flex justify-between text-gray-500 mt-1">
+                            <span>Sinyal Skoru</span>
+                            <span id="modalScore" class="text-gray-300"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 mt-6">
+                    <button type="button" onclick="closeBuyModal()"
+                        class="flex-1 px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium transition-colors">
+                        Iptal
+                    </button>
+                    <button type="submit"
+                        class="flex-1 px-4 py-2 rounded-lg bg-accent-green hover:bg-accent-green/80 text-white text-sm font-bold transition-colors">
+                        Pozisyon Ac
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openBuyModal(symbol, price, score, reasons) {
+    document.getElementById('modalSymbol').textContent = symbol;
+    document.getElementById('formSymbol').value = symbol;
+    document.getElementById('formPrice').value = price.toFixed(2);
+    document.getElementById('formScore').value = score;
+    document.getElementById('formReasons').value = reasons;
+    document.getElementById('modalScore').textContent = score;
+    document.getElementById('formShares').value = '';
+    document.getElementById('totalCost').textContent = '0 TL';
+    document.getElementById('buyModal').classList.remove('hidden');
+}
+
+function closeBuyModal() {
+    document.getElementById('buyModal').classList.add('hidden');
+}
+
+function updateCost() {
+    const price = parseFloat(document.getElementById('formPrice').value) || 0;
+    const shares = parseInt(document.getElementById('formShares').value) || 0;
+    const total = price * shares;
+    document.getElementById('totalCost').textContent = total.toLocaleString('tr-TR') + ' TL';
+}
+
+document.getElementById('formPrice').addEventListener('input', updateCost);
+</script>
+{% endblock %}

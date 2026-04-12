@@ -156,7 +156,6 @@ def main():
 
     # Initialize components
     portfolio = PortfolioManager(repo, config)
-    portfolio.initialize_cash()
 
     scanner = Scanner(repo, config)
     monitor = Monitor(repo, config)

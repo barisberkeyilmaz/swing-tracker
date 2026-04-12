@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}{{ trade.symbol }} #{{ trade.id }} — Swing Tracker{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<div class="mb-4 sm:mb-6 flex items-center gap-2 text-sm text-gray-500">
+    <a href="/portfolio" class="hover:text-gray-300">Portfoy</a>
+    <span>/</span>
+    <span class="text-gray-300">{{ trade.symbol }} #{{ trade.id }}</span>
+</div>
+
+<!-- Baslik -->
+<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+    <div class="flex items-center gap-4">
+        <h1 class="text-2xl font-bold text-white">{{ trade.symbol }}</h1>
+        <span class="px-3 py-1 rounded-lg text-sm font-medium
+            {% if trade.status == 'open' %}bg-accent-green/20 text-accent-green
+            {% elif trade.status == 'partial_exit' %}bg-accent-yellow/20 text-accent-yellow
+            {% elif trade.status == 'closed' %}bg-gray-600/30 text-gray-400
+            {% else %}bg-blue-500/20 text-blue-400{% endif %}">
+            {{ trade.status|upper }}
+        </span>
+        {% if trade.direction %}
+        <span class="px-2 py-0.5 rounded text-xs
+            {% if trade.direction == 'long' %}bg-accent-green/10 text-accent-green
+            {% else %}bg-accent/10 text-accent{% endif %}">
+            {{ trade.direction|upper }}
+        </span>
+        {% endif %}
+    </div>
+    <form action="/trades/{{ trade.id }}/delete" method="post"
+        onsubmit="return confirm('Bu trade silinecek (exit\'ler dahil). Emin misin?')">
+        <button type="submit"
+            class="px-4 py-1.5 rounded-lg bg-accent/20 hover:bg-accent/40 text-accent text-sm font-medium transition-colors">
+            Sil
+        </button>
+    </form>
+</div>
+
+<!-- Trade Bilgileri -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+    <!-- Giris Detaylari -->
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Giris Detaylari</h3>
+        <div class="space-y-3">
+            <div class="flex justify-between">
+                <span class="text-gray-500">Giris Fiyati</span>
+                <span class="text-white font-medium">{{ "%.2f"|format(trade.entry_price or 0) }} TL</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Lot (Toplam)</span>
+                <span class="text-white">{{ trade.shares|int }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Kalan Lot</span>
+                <span class="text-white font-medium">{{ remaining_shares|int }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Maliyet</span>
+                <span class="text-white">{{ "{:,.0f}".format(trade.total_cost or 0) }} TL</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Tarih</span>
+                <span class="text-gray-300">{{ trade.entry_date[:10] if trade.entry_date else '-' }}</span>
+            </div>
+            {% if trade.signal_score %}
+            <div class="flex justify-between">
+                <span class="text-gray-500">Sinyal Skoru</span>
+                <span class="text-white">{{ trade.signal_score }}</span>
+            </div>
+            {% endif %}
+            {% if trade.strategy %}
+            <div class="flex justify-between">
+                <span class="text-gray-500">Strateji</span>
+                <span class="text-gray-300">{{ trade.strategy }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Hedefler -->
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Hedefler</h3>
+        <div class="space-y-3">
+            <div class="flex justify-between items-center">
+                <span class="text-accent">Stop Loss</span>
+                <span class="text-accent font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }} TL</span>
+            </div>
+            {% if trade.entry_price and trade.stop_loss %}
+            <div class="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                {% set sl_pct = ((trade.entry_price - trade.stop_loss) / trade.entry_price * 100) %}
+                <div class="h-full bg-accent rounded-full" style="width: {{ [sl_pct * 5, 100]|min }}%"></div>
+            </div>
+            <p class="text-xs text-gray-500">Risk: %{{ "%.1f"|format(sl_pct) }}</p>
+            {% endif %}
+
+            <div class="border-t border-gray-700/30 pt-3"></div>
+
+            <div class="flex justify-between">
+                <span class="text-accent-green">TP1</span>
+                <span class="text-accent-green font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }} TL</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-accent-green">TP2</span>
+                <span class="text-accent-green font-medium">{{ "%.2f"|format(trade.take_profit_2 or 0) }} TL</span>
+            </div>
+            {% if trade.take_profit_3 %}
+            <div class="flex justify-between">
+                <span class="text-accent-green">TP3</span>
+                <span class="text-accent-green font-medium">{{ "%.2f"|format(trade.take_profit_3) }} TL</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Sonuc -->
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Sonuc</h3>
+        <div class="space-y-3">
+            {% if trade.status == 'closed' %}
+            <div class="flex justify-between">
+                <span class="text-gray-500">Cikis Ort.</span>
+                <span class="text-white font-medium">{{ "%.2f"|format(trade.exit_price_avg or 0) }} TL</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Cikis Tarihi</span>
+                <span class="text-gray-300">{{ trade.exit_date[:10] if trade.exit_date else '-' }}</span>
+            </div>
+            <div class="border-t border-gray-700/30 pt-3"></div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Realize K/Z</span>
+                <span class="text-xl font-bold
+                    {% if (trade.realized_pnl or 0) >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
+                    {{ "{:+,.0f}".format(trade.realized_pnl or 0) }} TL
+                </span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">K/Z %</span>
+                <span class="font-medium
+                    {% if (trade.realized_pnl_pct or 0) >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
+                    {{ "%+.1f"|format(trade.realized_pnl_pct or 0) }}%
+                </span>
+            </div>
+            {% else %}
+            <div class="flex justify-between">
+                <span class="text-gray-500">Cikan Lot</span>
+                <span class="text-white">{{ exited_shares|int }} / {{ trade.shares|int }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Kalan Lot</span>
+                <span class="text-white font-medium">{{ remaining_shares|int }}</span>
+            </div>
+            {% if exits %}
+            <div class="border-t border-gray-700/30 pt-3"></div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Realize K/Z</span>
+                <span class="text-xl font-bold
+                    {% if realized_pnl >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
+                    {{ "{:+,.0f}".format(realized_pnl) }} TL
+                </span>
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Giris Nedenleri -->
+{% if trade.entry_reasons is iterable and trade.entry_reasons is not string %}
+<div class="bg-surface-light rounded-xl border border-gray-700/30 p-5 mb-6">
+    <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-3">Giris Nedenleri</h3>
+    <div class="flex flex-wrap gap-2">
+        {% for reason in trade.entry_reasons %}
+        <span class="px-3 py-1 rounded-full bg-surface-card/50 text-sm text-gray-300">{{ reason }}</span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Exit Gecmisi -->
+<div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden mb-6">
+    <div class="px-5 py-3 border-b border-gray-700/30">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Cikis Gecmisi</h3>
+    </div>
+
+    {% if exits %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase border-b border-gray-700/30">
+                    <th class="px-5 py-3">Tip</th>
+                    <th class="px-3 py-3 text-right">Fiyat</th>
+                    <th class="px-3 py-3 text-right">Lot</th>
+                    <th class="px-3 py-3 text-right">K/Z</th>
+                    <th class="px-3 py-3 text-right">K/Z %</th>
+                    <th class="px-3 py-3">Tarih</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700/20">
+                {% for e in exits %}
+                <tr class="hover:bg-white/[0.02]">
+                    <td class="px-5 py-3">
+                        <span class="px-2 py-0.5 rounded text-xs font-medium
+                            {% if 'tp' in e.exit_type %}bg-accent-green/20 text-accent-green
+                            {% elif e.exit_type == 'sl' %}bg-accent/20 text-accent
+                            {% elif e.exit_type == 'trailing' %}bg-accent-yellow/20 text-accent-yellow
+                            {% else %}bg-gray-600/30 text-gray-400{% endif %}">
+                            {{ e.exit_type|upper }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-3 text-right text-white">{{ "%.2f"|format(e.price) }}</td>
+                    <td class="px-3 py-3 text-right text-gray-300">{{ e.shares|int }}</td>
+                    <td class="px-3 py-3 text-right font-medium
+                        {% if (e.pnl or 0) >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
+                        {{ "{:+,.0f}".format(e.pnl or 0) }}
+                    </td>
+                    <td class="px-3 py-3 text-right
+                        {% if (e.pnl_pct or 0) >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
+                        {{ "%+.1f"|format(e.pnl_pct or 0) }}%
+                    </td>
+                    <td class="px-3 py-3 text-gray-400 text-xs">{{ e.exit_date[:16] if e.exit_date else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="px-5 py-8 text-center text-gray-500">Henuz cikis yapilmamis</div>
+    {% endif %}
+</div>
+
+<!-- Ilgili Sinyaller -->
+{% if trade_signals %}
+<div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-700/30">
+        <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">{{ trade.symbol }} Sinyalleri</h3>
+    </div>
+    <div class="divide-y divide-gray-700/20">
+        {% for sig in trade_signals %}
+        <div class="px-5 py-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <span class="text-xs px-2 py-0.5 rounded
+                    {% if sig.strength == 'strong' %}bg-accent-green/20 text-accent-green
+                    {% else %}bg-accent-yellow/20 text-accent-yellow{% endif %}">
+                    {{ sig.strength }}
+                </span>
+                <span class="text-white ml-2">{{ "%.2f"|format(sig.price_at_signal) }} TL</span>
+                <span class="text-gray-500 ml-2 text-xs">Skor: {{ sig.score or '-' }}</span>
+            </div>
+            <span class="text-xs text-gray-500">{{ sig.created_at[:16] if sig.created_at else '' }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if trade.notes %}
+<div class="bg-surface-light rounded-xl border border-gray-700/30 p-5 mt-6">
+    <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-2">Notlar</h3>
+    <p class="text-gray-300 text-sm">{{ trade.notes }}</p>
+</div>
+{% endif %}
+{% endblock %}
