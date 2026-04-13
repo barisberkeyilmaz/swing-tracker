@@ -29,13 +29,21 @@
         </span>
         {% endif %}
     </div>
-    <form action="/trades/{{ trade.id }}/delete" method="post"
-        onsubmit="return confirm('Bu trade silinecek (exit\'ler dahil). Emin misin?')">
-        <button type="submit"
-            class="px-4 py-1.5 rounded-lg bg-accent/20 hover:bg-accent/40 text-accent text-sm font-medium transition-colors">
-            Sil
+    <div class="flex items-center gap-2">
+        {% if trade.status in ('open', 'partial_exit') %}
+        <button onclick="openExitModal()"
+            class="px-4 py-1.5 rounded-lg bg-accent-green/20 hover:bg-accent-green/40 text-accent-green text-sm font-medium transition-colors">
+            Cikis Yap
         </button>
-    </form>
+        {% endif %}
+        <form action="/trades/{{ trade.id }}/delete" method="post"
+            onsubmit="return confirm('Bu trade silinecek (exit\'ler dahil). Emin misin?')">
+            <button type="submit"
+                class="px-4 py-1.5 rounded-lg bg-accent/20 hover:bg-accent/40 text-accent text-sm font-medium transition-colors">
+                Sil
+            </button>
+        </form>
+    </div>
 </div>
 
 <!-- Trade Bilgileri -->
@@ -195,6 +203,7 @@
                     <th class="px-3 py-3 text-right">K/Z</th>
                     <th class="px-3 py-3 text-right">K/Z %</th>
                     <th class="px-3 py-3">Tarih</th>
+                    <th class="px-3 py-3"></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-700/20">
@@ -220,6 +229,15 @@
                         {{ "%+.1f"|format(e.pnl_pct or 0) }}%
                     </td>
                     <td class="px-3 py-3 text-gray-400 text-xs">{{ e.exit_date[:16] if e.exit_date else '-' }}</td>
+                    <td class="px-3 py-3 text-right">
+                        <form action="/trades/{{ trade.id }}/exits/{{ e.id }}/delete" method="post"
+                            onsubmit="return confirm('Bu cikis kaydi silinecek, nakit geri alinacak. Emin misin?')">
+                            <button type="submit"
+                                class="px-2 py-1 rounded text-xs text-gray-500 hover:text-accent hover:bg-accent/10 transition-colors">
+                                Sil
+                            </button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -233,22 +251,68 @@
 <!-- Ilgili Sinyaller -->
 {% if trade_signals %}
 <div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-700/30">
+    <div class="px-5 py-3 border-b border-gray-700/30 flex flex-wrap items-center justify-between gap-2">
         <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">{{ trade.symbol }} Sinyalleri</h3>
+        <button onclick="document.getElementById('scoringInfo').classList.toggle('hidden')"
+            class="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+            Skor nasil hesaplanir?
+        </button>
     </div>
+
+    <!-- Skor aciklamasi -->
+    <div id="scoringInfo" class="hidden border-b border-gray-700/30 px-5 py-4 bg-surface/50">
+        <p class="text-xs text-gray-400 mb-2">Skor, coklu zaman dilimi analiziyle hesaplanir. Fiyat SMA100 ustunde olmali (zorunlu filtre):</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
+            <div class="flex justify-between text-gray-500">
+                <span>Gunluk RSI &lt; 45</span>
+                <span class="text-gray-400">+2 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>MACD &lt; Signal (momentum)</span>
+                <span class="text-gray-400">+1 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>BB alt bandina yakin (&lt;3%)</span>
+                <span class="text-gray-400">+2 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>Saatlik RSI 40 ustune cikis</span>
+                <span class="text-gray-400">+2 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>Hacim &gt; 20 gunluk ortalama</span>
+                <span class="text-gray-400">+1 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>Min. esik</span>
+                <span class="text-gray-400">4 puan (DB'de x10)</span>
+            </div>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">Guc: 6+ puan = <span class="text-accent-green">strong</span>, 4-5 = <span class="text-accent-yellow">medium</span></p>
+    </div>
+
     <div class="divide-y divide-gray-700/20">
         {% for sig in trade_signals %}
-        <div class="px-5 py-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-                <span class="text-xs px-2 py-0.5 rounded
-                    {% if sig.strength == 'strong' %}bg-accent-green/20 text-accent-green
-                    {% else %}bg-accent-yellow/20 text-accent-yellow{% endif %}">
-                    {{ sig.strength }}
-                </span>
-                <span class="text-white ml-2">{{ "%.2f"|format(sig.price_at_signal) }} TL</span>
-                <span class="text-gray-500 ml-2 text-xs">Skor: {{ sig.score or '-' }}</span>
+        <div class="px-5 py-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs px-2 py-0.5 rounded
+                        {% if sig.strength == 'strong' %}bg-accent-green/20 text-accent-green
+                        {% else %}bg-accent-yellow/20 text-accent-yellow{% endif %}">
+                        {{ sig.strength }}
+                    </span>
+                    <span class="text-white">{{ "%.2f"|format(sig.price_at_signal) }} TL</span>
+                    <span class="text-gray-500 text-xs">Skor: {{ sig.score or '-' }}{% if sig.indicator_values is mapping and sig.indicator_values.get('entry_score') %} ({{ sig.indicator_values.entry_score }}/8){% endif %}</span>
+                </div>
+                <span class="text-xs text-gray-500">{{ sig.created_at[:16] if sig.created_at else '' }}</span>
             </div>
-            <span class="text-xs text-gray-500">{{ sig.created_at[:16] if sig.created_at else '' }}</span>
+            {% if sig.indicator_values is mapping and sig.indicator_values.get('reasons') %}
+            <div class="flex flex-wrap gap-1.5 mt-1.5">
+                {% for reason in sig.indicator_values.reasons.split(', ') %}
+                <span class="px-2 py-0.5 rounded-full bg-surface-card/50 text-xs text-gray-400">{{ reason }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
         {% endfor %}
     </div>
@@ -260,5 +324,136 @@
     <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-2">Notlar</h3>
     <p class="text-gray-300 text-sm">{{ trade.notes }}</p>
 </div>
+{% endif %}
+
+<!-- Cikis Modal -->
+{% if trade.status in ('open', 'partial_exit') %}
+<div id="exitModal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60" onclick="closeExitModal()"></div>
+    <div class="absolute inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-md overflow-y-auto max-h-[calc(100vh-2rem)]">
+        <div class="bg-surface-light rounded-xl border border-gray-700/30 p-6">
+            <div class="flex items-center justify-between mb-5">
+                <h3 class="text-lg font-semibold text-white">{{ trade.symbol }} — Cikis Yap</h3>
+                <button onclick="closeExitModal()" class="text-gray-500 hover:text-white text-xl">&times;</button>
+            </div>
+
+            <form action="/trades/{{ trade.id }}/exit" method="post">
+                <div class="space-y-4">
+                    <!-- Hizli butonlar -->
+                    <div class="flex gap-2">
+                        <button type="button" onclick="setExitShares({{ remaining_shares }})"
+                            class="flex-1 px-3 py-2 min-h-[44px] rounded-lg bg-accent/20 hover:bg-accent/30 text-accent text-sm font-medium transition-colors">
+                            Tam Cikis ({{ remaining_shares|int }} lot)
+                        </button>
+                        {% if remaining_shares > 1 %}
+                        <button type="button" onclick="setExitShares({{ (remaining_shares // 2)|int }})"
+                            class="flex-1 px-3 py-2 min-h-[44px] rounded-lg bg-accent-yellow/20 hover:bg-accent-yellow/30 text-accent-yellow text-sm font-medium transition-colors">
+                            Yarim ({{ (remaining_shares // 2)|int }} lot)
+                        </button>
+                        {% endif %}
+                    </div>
+
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Cikis Fiyati (TL)</label>
+                        <input type="number" name="exit_price" id="exitPrice" step="0.01" required
+                            oninput="updateExitPnl()"
+                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Lot (max: {{ remaining_shares|int }})</label>
+                        <input type="number" name="shares" id="exitShares" step="1" min="1"
+                            max="{{ remaining_shares|int }}" value="{{ remaining_shares|int }}" required
+                            oninput="updateExitPnl()"
+                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Cikis Tipi</label>
+                        <select name="exit_type" id="exitType"
+                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none">
+                            <option value="manual">Manuel</option>
+                            <option value="tp1">TP1</option>
+                            <option value="tp2">TP2</option>
+                            <option value="tp3">TP3</option>
+                            <option value="sl">Stop Loss</option>
+                            <option value="trailing">Trailing Stop</option>
+                        </select>
+                    </div>
+
+                    <!-- Tahmini K/Z -->
+                    <div class="bg-surface rounded-lg p-3 text-sm">
+                        <div class="flex justify-between text-gray-400">
+                            <span>Giris Fiyati</span>
+                            <span class="text-white">{{ "%.2f"|format(trade.entry_price or 0) }} TL</span>
+                        </div>
+                        <div class="flex justify-between text-gray-400 mt-1">
+                            <span>Tahmini Hasilat</span>
+                            <span id="exitRevenue" class="text-white font-medium">0 TL</span>
+                        </div>
+                        <div class="border-t border-gray-700/30 my-2"></div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Tahmini K/Z</span>
+                            <span id="exitPnl" class="text-white font-bold">0 TL</span>
+                        </div>
+                        <div class="flex justify-between mt-1">
+                            <span class="text-gray-400">K/Z %</span>
+                            <span id="exitPnlPct" class="text-white">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 mt-6">
+                    <button type="button" onclick="closeExitModal()"
+                        class="flex-1 px-4 py-2 min-h-[44px] rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium transition-colors">
+                        Iptal
+                    </button>
+                    <button type="submit"
+                        class="flex-1 px-4 py-2 min-h-[44px] rounded-lg bg-accent-green hover:bg-accent-green/80 text-white text-sm font-bold transition-colors">
+                        Satisi Onayla
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const ENTRY_PRICE = {{ trade.entry_price or 0 }};
+
+function openExitModal() {
+    document.getElementById('exitModal').classList.remove('hidden');
+    updateExitPnl();
+}
+
+function closeExitModal() {
+    document.getElementById('exitModal').classList.add('hidden');
+}
+
+function setExitShares(n) {
+    document.getElementById('exitShares').value = n;
+    updateExitPnl();
+}
+
+function updateExitPnl() {
+    const price = parseFloat(document.getElementById('exitPrice').value) || 0;
+    const shares = parseInt(document.getElementById('exitShares').value) || 0;
+    const revenue = price * shares;
+    const pnl = (price - ENTRY_PRICE) * shares;
+    const pnlPct = ENTRY_PRICE ? ((price - ENTRY_PRICE) / ENTRY_PRICE * 100) : 0;
+
+    document.getElementById('exitRevenue').textContent = revenue.toLocaleString('tr-TR') + ' TL';
+
+    const pnlEl = document.getElementById('exitPnl');
+    const pctEl = document.getElementById('exitPnlPct');
+    const sign = pnl >= 0 ? '+' : '';
+    pnlEl.textContent = sign + pnl.toLocaleString('tr-TR', {maximumFractionDigits: 0}) + ' TL';
+    pctEl.textContent = sign + pnlPct.toFixed(1) + '%';
+
+    const color = pnl >= 0 ? 'text-accent-green' : 'text-accent';
+    pnlEl.className = 'font-bold ' + color;
+    pctEl.className = color;
+}
+</script>
 {% endif %}
 {% endblock %}

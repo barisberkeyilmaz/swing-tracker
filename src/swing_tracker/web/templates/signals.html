@@ -8,7 +8,45 @@
 <div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
     <div class="px-5 py-3 border-b border-gray-700/30 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Sinyal Gecmisi</h2>
-        <span class="text-xs text-gray-500">Son {{ signals|length }} sinyal</span>
+        <div class="flex items-center gap-3">
+            <button onclick="document.getElementById('scoringInfo').classList.toggle('hidden')"
+                class="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                Skor nasil hesaplanir?
+            </button>
+            <span class="text-xs text-gray-500">Son {{ signals|length }} sinyal</span>
+        </div>
+    </div>
+
+    <!-- Skor aciklamasi -->
+    <div id="scoringInfo" class="hidden border-b border-gray-700/30 px-5 py-4 bg-surface/50">
+        <p class="text-xs text-gray-400 mb-2">Skor, coklu zaman dilimi analiziyle hesaplanir. Fiyat SMA100 ustunde olmali (zorunlu filtre):</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
+            <div class="flex justify-between text-gray-500">
+                <span>Gunluk RSI &lt; 45</span>
+                <span class="text-gray-400">+2 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>MACD &lt; Signal (momentum)</span>
+                <span class="text-gray-400">+1 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>BB alt bandina yakin (&lt;3%)</span>
+                <span class="text-gray-400">+2 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>Saatlik RSI 40 ustune cikis</span>
+                <span class="text-gray-400">+2 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>Hacim &gt; 20 gunluk ortalama</span>
+                <span class="text-gray-400">+1 puan</span>
+            </div>
+            <div class="flex justify-between text-gray-500">
+                <span>Min. esik</span>
+                <span class="text-gray-400">4 puan (DB'de x10)</span>
+            </div>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">Guc: 6+ puan = <span class="text-accent-green">strong</span>, 4-5 = <span class="text-accent-yellow">medium</span></p>
     </div>
 
     {% if signals %}
@@ -55,11 +93,15 @@
                         </span>
                         {% else %}-{% endif %}
                     </td>
-                    <td class="px-3 py-3 text-gray-400 text-xs max-w-xs truncate">
-                        {% if sig.indicator_values is mapping %}
-                            {{ sig.indicator_values.get('reasons', sig.indicator or '') }}
+                    <td class="px-3 py-3 text-xs max-w-sm">
+                        {% if sig.indicator_values is mapping and sig.indicator_values.get('reasons') %}
+                        <div class="flex flex-wrap gap-1">
+                            {% for reason in sig.indicator_values.reasons.split(', ') %}
+                            <span class="px-1.5 py-0.5 rounded bg-surface-card/50 text-gray-400">{{ reason }}</span>
+                            {% endfor %}
+                        </div>
                         {% else %}
-                            {{ sig.indicator or '' }}
+                            <span class="text-gray-500">{{ sig.indicator or '' }}</span>
                         {% endif %}
                     </td>
                     <td class="px-3 py-3">
@@ -105,10 +147,12 @@
                 </span>
                 {% endif %}
             </div>
-            {% if sig.indicator_values is mapping %}
-            <p class="text-xs text-gray-500 truncate mb-1.5">
-                {{ sig.indicator_values.get('reasons', sig.indicator or '') }}
-            </p>
+            {% if sig.indicator_values is mapping and sig.indicator_values.get('reasons') %}
+            <div class="flex flex-wrap gap-1 mb-1.5">
+                {% for reason in sig.indicator_values.reasons.split(', ') %}
+                <span class="px-1.5 py-0.5 rounded bg-surface-card/50 text-xs text-gray-400">{{ reason }}</span>
+                {% endfor %}
+            </div>
             {% elif sig.indicator %}
             <p class="text-xs text-gray-500 truncate mb-1.5">{{ sig.indicator }}</p>
             {% endif %}
