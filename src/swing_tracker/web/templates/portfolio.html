@@ -5,13 +5,14 @@
 {% block bottom_nav_portfolio %}text-accent{% endblock %}
 
 {% block content %}
+
 <!-- Sermaye Ozeti — hiyerarsili -->
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
     <!-- Birincil: Toplam Portfoy (vurgulu, lg'de 2 kolon) -->
     <div class="sm:col-span-2 lg:col-span-2 bg-surface-raised rounded-lg p-5 border border-border">
         <p class="text-xs font-medium text-txt-muted uppercase tracking-wide mb-1">Toplam Portfoy</p>
         <p class="text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-txt-primary">
-            {{ "{:,.0f}".format(capital.total_portfolio) }} <span class="text-sm font-normal text-txt-ghost">TL</span>
+            <span id="ptf-live-value">{% if open_trades %}<span class="text-txt-ghost text-lg">yukleniyor...</span>{% else %}{{ "{:,.0f}".format(capital.total_portfolio) }} <span class="text-sm font-normal text-txt-ghost">TL</span>{% endif %}</span>
         </p>
         <p class="text-xs text-txt-ghost mt-1">Yatirilan: {{ "{:,.0f}".format(capital.deposits) }} TL</p>
     </div>
@@ -24,8 +25,17 @@
     </div>
     <div class="bg-surface-raised/50 rounded-lg p-4 border border-border-subtle">
         <p class="text-xs font-medium text-txt-muted uppercase tracking-wide mb-1">Pozisyonlarda</p>
-        <p class="text-xl font-bold font-mono tabular-nums text-txt-primary">{{ "{:,.0f}".format(capital.open_cost) }} <span class="text-sm font-normal text-txt-ghost">TL</span></p>
+        <p class="text-xl font-bold font-mono tabular-nums text-txt-primary"><span id="ptf-positions-value">{% if open_trades %}<span class="text-txt-ghost text-sm">...</span>{% else %}{{ "{:,.0f}".format(capital.open_cost) }}{% endif %}</span> <span class="text-sm font-normal text-txt-ghost">TL</span></p>
         <p class="text-xs text-txt-ghost">{{ open_trades|length }} acik</p>
+    </div>
+    <!-- Acik K/Z karti — HTMX ile dolar -->
+    <div class="bg-surface-raised/50 rounded-lg p-4 border border-border-subtle">
+        <div id="ptf-unrealized-card">
+            <p class="text-xs font-medium text-txt-muted uppercase tracking-wide mb-1">Acik K/Z</p>
+            <p class="text-xl font-bold font-mono tabular-nums text-txt-ghost">
+                {% if open_trades %}yukleniyor...{% else %}—{% endif %}
+            </p>
+        </div>
     </div>
     <div class="bg-surface-raised/50 rounded-lg p-4 border border-border-subtle">
         <div class="flex items-center justify-between mb-1">
@@ -60,10 +70,12 @@
                     <th class="px-5 py-3">Sembol</th>
                     <th class="px-3 py-3">Durum</th>
                     <th class="px-3 py-3 text-right">Giris</th>
+                    <th class="px-3 py-3 text-right">Guncel</th>
                     <th class="px-3 py-3 text-right">Lot</th>
                     <th class="px-3 py-3 text-right">Maliyet</th>
                     <th class="px-3 py-3 text-right">SL</th>
                     <th class="px-3 py-3 text-right">TP1</th>
+                    <th class="px-3 py-3 text-right">Acik K/Z</th>
                     <th class="px-3 py-3 text-right">Realize K/Z</th>
                     <th class="px-3 py-3">Tarih</th>
                 </tr>
@@ -80,6 +92,7 @@
                         </span>
                     </td>
                     <td class="px-3 py-3 text-right text-txt-primary font-mono tabular-nums">{{ "%.2f"|format(t.entry_price or 0) }}</td>
+                    <td id="ptf-trade-price-{{ t.id }}" class="px-3 py-3 text-right text-txt-ghost font-mono tabular-nums text-xs">yukleniyor...</td>
                     <td class="px-3 py-3 text-right text-txt-primary font-mono tabular-nums">
                         {{ t.remaining_shares|int }}
                         {% if t.remaining_shares != t.shares %}<span class="text-txt-ghost">/{{ t.shares|int }}</span>{% endif %}
@@ -87,6 +100,7 @@
                     <td class="px-3 py-3 text-right text-txt-secondary font-mono tabular-nums">{{ "{:,.0f}".format(t.total_cost or 0) }}</td>
                     <td class="px-3 py-3 text-right text-negative font-mono tabular-nums">{{ "%.2f"|format(t.stop_loss or 0) }}</td>
                     <td class="px-3 py-3 text-right text-positive font-mono tabular-nums">{{ "%.2f"|format(t.take_profit_1 or 0) }}</td>
+                    <td id="ptf-trade-pnl-{{ t.id }}" class="px-3 py-3 text-right text-txt-ghost font-mono tabular-nums text-xs">yukleniyor...</td>
                     <td class="px-3 py-3 text-right">
                         {% if t.exits %}
                         <span class="font-mono tabular-nums font-medium {% if t.realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">
@@ -137,6 +151,12 @@
                 <div>
                     <span class="text-txt-muted text-xs">TP1</span>
                     <p class="text-positive font-mono tabular-nums">{{ "%.2f"|format(t.take_profit_1 or 0) }}</p>
+                </div>
+            </div>
+            <div id="ptf-trade-mobile-price-{{ t.id }}" class="mt-2 grid grid-cols-2 gap-2 text-sm">
+                <div>
+                    <span class="text-txt-muted text-xs">Guncel</span>
+                    <p class="text-txt-ghost font-mono text-xs">yukleniyor...</p>
                 </div>
             </div>
             {% if t.exits %}
@@ -315,6 +335,92 @@ new Chart(ctx, {
         }
     }
 });
+</script>
+{% endif %}
+
+{% if open_trades %}
+<script>
+fetch('/portfolio/api/prices')
+    .then(r => r.json())
+    .then(data => {
+        if (!data.trades || !data.trades.length) return;
+
+        /* Summary: toplam portfoy */
+        const liveVal = document.getElementById('ptf-live-value');
+        if (liveVal) {
+            liveVal.innerHTML = data.live_portfolio.toLocaleString('tr-TR') +
+                ' <span class="text-sm font-normal text-txt-ghost">TL</span>';
+        }
+
+        /* Summary: pozisyonlar piyasa degeri */
+        const posVal = document.getElementById('ptf-positions-value');
+        if (posVal) {
+            posVal.textContent = data.total_market_value.toLocaleString('tr-TR');
+        }
+
+        /* Summary: acik K/Z karti */
+        const unrealCard = document.getElementById('ptf-unrealized-card');
+        if (unrealCard) {
+            const cls = data.total_unrealized >= 0 ? 'text-positive' : 'text-negative';
+            const sign = data.total_unrealized >= 0 ? '+' : '';
+            unrealCard.innerHTML =
+                '<p class="text-xs font-medium text-txt-muted uppercase tracking-wide mb-1">Acik K/Z</p>' +
+                '<p class="text-xl font-bold font-mono tabular-nums ' + cls + '">' +
+                sign + data.total_unrealized.toLocaleString('tr-TR') +
+                ' <span class="text-sm font-normal text-txt-ghost">TL</span></p>' +
+                '<p class="text-xs text-txt-ghost">Piyasa: ' +
+                data.total_market_value.toLocaleString('tr-TR') + ' TL</p>';
+        }
+
+        /* Per-trade: desktop table cells */
+        data.trades.forEach(t => {
+            const priceCell = document.getElementById('ptf-trade-price-' + t.id);
+            if (priceCell) {
+                if (t.current_price) {
+                    priceCell.textContent = t.current_price.toFixed(2);
+                    priceCell.className = 'px-3 py-3 text-right font-mono tabular-nums text-txt-primary';
+                } else {
+                    priceCell.textContent = '\u2014';
+                    priceCell.className = 'px-3 py-3 text-right font-mono tabular-nums text-txt-ghost';
+                }
+            }
+
+            const pnlCell = document.getElementById('ptf-trade-pnl-' + t.id);
+            if (pnlCell) {
+                if (t.unrealized !== null) {
+                    const cls = t.unrealized >= 0 ? 'text-positive' : 'text-negative';
+                    const sign = t.unrealized >= 0 ? '+' : '';
+                    const signPct = t.unrealized_pct >= 0 ? '+' : '';
+                    pnlCell.innerHTML = sign + t.unrealized.toLocaleString('tr-TR') +
+                        ' <span class="text-xs">(' + signPct + t.unrealized_pct.toFixed(1) + '%)</span>';
+                    pnlCell.className = 'px-3 py-3 text-right font-mono tabular-nums font-medium ' + cls;
+                } else {
+                    pnlCell.textContent = '\u2014';
+                    pnlCell.className = 'px-3 py-3 text-right font-mono tabular-nums text-txt-ghost';
+                }
+            }
+
+            /* Mobile cards */
+            const mobileEl = document.getElementById('ptf-trade-mobile-price-' + t.id);
+            if (mobileEl) {
+                if (t.current_price) {
+                    const cls = (t.unrealized || 0) >= 0 ? 'text-positive' : 'text-negative';
+                    const sign = (t.unrealized || 0) >= 0 ? '+' : '';
+                    mobileEl.innerHTML =
+                        '<div><span class="text-txt-muted text-xs">Guncel</span>' +
+                        '<p class="text-txt-primary font-mono tabular-nums">' + t.current_price.toFixed(2) + '</p></div>' +
+                        '<div><span class="text-txt-muted text-xs">Acik K/Z</span>' +
+                        '<p class="font-mono tabular-nums ' + cls + '">' +
+                        sign + (t.unrealized || 0).toLocaleString('tr-TR') + '</p></div>';
+                } else {
+                    mobileEl.innerHTML =
+                        '<div><span class="text-txt-muted text-xs">Guncel</span>' +
+                        '<p class="text-txt-ghost font-mono">\u2014</p></div>';
+                }
+            }
+        });
+    })
+    .catch(() => {});
 </script>
 {% endif %}
 {% endblock %}

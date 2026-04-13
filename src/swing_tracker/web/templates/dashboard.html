@@ -10,8 +10,14 @@
     <div class="mb-3">
         <p class="text-xs font-medium text-txt-muted uppercase tracking-wide">Toplam Portfoy</p>
         <p class="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-txt-primary">
-            {{ "{:,.0f}".format(capital.total_portfolio) }}
-            <span class="text-base font-normal text-txt-ghost">TL</span>
+            <span id="live-portfolio-value">
+                {% if open_trades %}
+                <span class="text-txt-ghost text-lg">yukleniyor...</span>
+                {% else %}
+                {{ "{:,.0f}".format(capital.total_portfolio) }}
+                <span class="text-base font-normal text-txt-ghost">TL</span>
+                {% endif %}
+            </span>
         </p>
     </div>
     <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
@@ -22,7 +28,7 @@
         <span class="text-txt-ghost">|</span>
         <span class="text-txt-muted">
             Pozisyonlar
-            <span class="font-mono font-semibold tabular-nums text-txt-primary">{{ "{:,.0f}".format(capital.open_cost) }}</span>
+            <span id="live-positions-value" class="font-mono font-semibold tabular-nums text-txt-primary">{% if open_trades %}<span class="text-txt-ghost text-xs">...</span>{% else %}{{ "{:,.0f}".format(capital.open_cost) }}{% endif %}</span>
             <span class="text-txt-ghost">({{ open_trades|length }})</span>
         </span>
         <span class="text-txt-ghost">|</span>
@@ -31,6 +37,7 @@
             <span class="font-mono font-semibold tabular-nums {% if capital.realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">{{ "{:+,.0f}".format(capital.realized_pnl) }}</span>
             <span class="text-txt-ghost">%{{ "%.0f"|format(capital.win_rate) }} ({{ capital.winning_exits }}/{{ capital.total_exits }})</span>
         </span>
+        <span id="live-unrealized-badge"></span>
     </div>
     <details class="mt-3">
         <summary class="text-xs text-txt-ghost cursor-pointer hover:text-txt-muted select-none">Nakit islem</summary>
@@ -57,6 +64,7 @@
         </div>
     </details>
 </div>
+
 
 <!-- Iki kolonlu layout -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -92,10 +100,14 @@
                     </span>
                 </div>
 
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-sm">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 text-sm">
                     <div>
                         <span class="text-txt-muted text-xs">Giris</span>
                         <p class="text-txt-primary font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.entry_price or 0) }} TL</p>
+                    </div>
+                    <div id="trade-price-{{ trade.id }}">
+                        <span class="text-txt-muted text-xs">Guncel</span>
+                        <p class="text-txt-ghost font-mono text-xs">yukleniyor...</p>
                     </div>
                     <div>
                         <span class="text-txt-muted text-xs">Maliyet</span>
@@ -110,6 +122,10 @@
                         <p><span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }}</span>
                         <span class="text-txt-ghost">/</span>
                         <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }}</span></p>
+                    </div>
+                    <div id="trade-unrealized-{{ trade.id }}">
+                        <span class="text-txt-muted text-xs">Acik K/Z</span>
+                        <p class="text-txt-ghost font-mono text-xs">yukleniyor...</p>
                     </div>
                     <div>
                         <span class="text-txt-muted text-xs">Realize K/Z</span>
@@ -253,5 +269,76 @@ function updateManualCost() {
     const shares = parseInt(document.getElementById('manualShares').value) || 0;
     document.getElementById('manualCost').textContent = (price * shares).toLocaleString('tr-TR') + ' TL';
 }
+
+{% if open_trades %}
+/* Canli fiyat yukleme */
+fetch('/api/prices')
+    .then(r => r.json())
+    .then(data => {
+        if (!data.trades || !data.trades.length) return;
+
+        /* Hero: toplam portfoy */
+        const heroEl = document.getElementById('live-portfolio-value');
+        if (heroEl) {
+            heroEl.innerHTML = data.live_portfolio.toLocaleString('tr-TR') +
+                ' <span class="text-base font-normal text-txt-ghost">TL</span>';
+        }
+
+        /* Hero: pozisyonlar piyasa degeri */
+        const posEl = document.getElementById('live-positions-value');
+        if (posEl) {
+            posEl.textContent = data.total_market_value.toLocaleString('tr-TR');
+        }
+
+        /* Hero: acik K/Z badge */
+        const badgeEl = document.getElementById('live-unrealized-badge');
+        if (badgeEl) {
+            const cls = data.total_unrealized >= 0 ? 'text-positive' : 'text-negative';
+            const sign = data.total_unrealized >= 0 ? '+' : '';
+            badgeEl.innerHTML =
+                '<span class="text-txt-ghost">|</span> ' +
+                '<span class="text-txt-muted">Acik K/Z ' +
+                '<span class="font-mono font-semibold tabular-nums ' + cls + '">' +
+                sign + data.total_unrealized.toLocaleString('tr-TR') +
+                '</span></span>';
+        }
+
+        /* Her trade icin guncel fiyat + unrealized */
+        data.trades.forEach(t => {
+            const priceEl = document.getElementById('trade-price-' + t.id);
+            if (priceEl) {
+                if (t.current_price) {
+                    priceEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Guncel</span>' +
+                        '<p class="text-txt-primary font-mono tabular-nums font-medium">' +
+                        t.current_price.toFixed(2) + ' TL</p>';
+                } else {
+                    priceEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Guncel</span>' +
+                        '<p class="text-txt-ghost font-mono">&mdash;</p>';
+                }
+            }
+
+            const pnlEl = document.getElementById('trade-unrealized-' + t.id);
+            if (pnlEl) {
+                if (t.unrealized !== null) {
+                    const cls = t.unrealized >= 0 ? 'text-positive' : 'text-negative';
+                    const sign = t.unrealized >= 0 ? '+' : '';
+                    const signPct = t.unrealized_pct >= 0 ? '+' : '';
+                    pnlEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Acik K/Z</span>' +
+                        '<p class="font-mono tabular-nums font-medium ' + cls + '">' +
+                        sign + t.unrealized.toLocaleString('tr-TR') + ' TL ' +
+                        '<span class="text-xs">(' + signPct + t.unrealized_pct.toFixed(1) + '%)</span></p>';
+                } else {
+                    pnlEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Acik K/Z</span>' +
+                        '<p class="text-txt-ghost font-mono">&mdash;</p>';
+                }
+            }
+        });
+    })
+    .catch(() => {});
+{% endif %}
 </script>
 {% endblock %}

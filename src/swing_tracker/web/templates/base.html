@@ -35,6 +35,20 @@
         .htmx-indicator { display: none; }
         .htmx-request .htmx-indicator { display: inline-block; }
         .tabular-nums { font-variant-numeric: tabular-nums; }
+        /* Tooltip */
+        .tip { position: relative; }
+        .tip .tip-text { visibility: hidden; opacity: 0; position: absolute; z-index: 50;
+            bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+            width: max-content; max-width: 220px; padding: 6px 10px;
+            background: #1a1a1a; border: 1px solid #2e2e2e; border-radius: 8px;
+            color: #a0a0a0; font-size: 11px; line-height: 1.4; text-align: left;
+            pointer-events: none; transition: opacity 0.15s; }
+        .tip:hover .tip-text, .tip:focus-within .tip-text { visibility: visible; opacity: 1; }
+        @media (max-width: 640px) {
+            .tip .tip-text { position: fixed; bottom: auto; top: 50%; left: 50%;
+                transform: translate(-50%, -50%); max-width: 280px; }
+            .tip:hover .tip-text, .tip:focus-within .tip-text { pointer-events: auto; }
+        }
     </style>
 </head>
 <body class="h-full bg-surface text-txt-primary">
@@ -82,6 +96,13 @@
                 <span class="sm:hidden text-xs text-txt-ghost">
                     {{ now.strftime('%H:%M') if now else '' }}
                 </span>
+                {% if auth_enabled %}
+                <a href="/logout" class="text-txt-ghost hover:text-txt-secondary transition-colors" title="Cikis">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+                    </svg>
+                </a>
+                {% endif %}
             </div>
         </div>
     </nav>

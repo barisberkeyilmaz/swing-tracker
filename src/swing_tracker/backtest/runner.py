@@ -13,7 +13,7 @@ from swing_tracker.backtest.models import BacktestConfig, BacktestResult
 from swing_tracker.config import load_config
 
 
-def _parse_config_from_toml() -> BacktestConfig:
+def parse_config_from_toml() -> BacktestConfig:
     """Load backtest config from config.toml [backtest] section."""
     config = load_config()
     raw_bt = {}
@@ -60,7 +60,7 @@ def _parse_config_from_toml() -> BacktestConfig:
 
 def run_single(overrides: dict | None = None) -> BacktestResult:
     """Run a single backtest with optional parameter overrides."""
-    config = _parse_config_from_toml()
+    config = parse_config_from_toml()
 
     if overrides:
         for key, value in overrides.items():
