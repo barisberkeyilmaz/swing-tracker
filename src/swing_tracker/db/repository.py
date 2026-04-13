@@ -181,6 +181,18 @@ class Repository:
         self._conn.commit()
         return cur.rowcount > 0
 
+    def get_last_exit(self) -> dict | None:
+        """Son yapilan exit kaydini dondurur (tum trade'ler arasinda)."""
+        row = self._conn.execute(
+            "SELECT * FROM trade_exits ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+    def delete_exit(self, exit_id: int) -> None:
+        """Bir exit kaydini siler."""
+        self._conn.execute("DELETE FROM trade_exits WHERE id = ?", (exit_id,))
+        self._conn.commit()
+
     # ── Signals Log ──
 
     def log_signal(

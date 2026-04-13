@@ -71,6 +71,7 @@ class TelegramNotifier:
                 app.add_handler(CommandHandler("yakin", self._cmd_yakin))
                 app.add_handler(CommandHandler("al", self._cmd_al))
                 app.add_handler(CommandHandler("sat", self._cmd_sat))
+                app.add_handler(CommandHandler("geri_al", self._cmd_geri_al))
                 app.add_handler(CommandHandler("yardim", self._cmd_yardim))
                 app.add_handler(CommandHandler("start", self._cmd_yardim))
 
@@ -110,6 +111,7 @@ class TelegramNotifier:
             "/al THYAO 315.50 100 — Alis kaydet (sembol fiyat lot)\n"
             "/sat 1 — Pozisyonu kapat (trade ID)\n"
             "/sat 1 50 328.00 — Kismi satis (ID lot fiyat)\n"
+            "/geri_al — Son satis islemini geri al\n"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -751,6 +753,65 @@ class TelegramNotifier:
             f"\n"
             f"#{trade_id} {sell_shares} lot @ {sell_price:.2f} TL\n"
             f"PnL: {pnl:+,.0f} TL ({pnl_pct:+.1f}%)"
+        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+    async def _cmd_geri_al(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Son yapilan satis/cikis islemini geri alir (stack mantigi).
+
+        Usage: /geri_al
+        """
+        if not self.repo:
+            await update.message.reply_text("DB hazir degil.")
+            return
+
+        last_exit = self.repo.get_last_exit()
+        if not last_exit:
+            await update.message.reply_text("Geri alinacak islem yok.")
+            return
+
+        exit_id = last_exit["id"]
+        trade_id = last_exit["trade_id"]
+        exit_shares = last_exit["shares"]
+        exit_price = last_exit["price"]
+        exit_pnl = last_exit.get("pnl", 0)
+
+        trade = self.repo.get_trade(trade_id)
+        if not trade:
+            await update.message.reply_text(f"Trade #{trade_id} bulunamadi.")
+            return
+
+        symbol = trade["symbol"]
+        old_status = trade["status"]
+
+        # Exit kaydini sil
+        self.repo.delete_exit(exit_id)
+
+        # Trade durumunu guncelle
+        remaining_exits = self.repo.get_trade_exits(trade_id)
+        total_exited = sum(e.get("shares", 0) for e in remaining_exits)
+
+        if total_exited == 0:
+            # Hic exit kalmadi, trade tekrar open
+            self.repo.update_trade_status(trade_id, "open", realized_pnl=None)
+            new_status = "open"
+        elif total_exited < trade.get("shares", 0):
+            # Hala partial exit var
+            total_pnl = sum(e.get("pnl", 0) for e in remaining_exits)
+            self.repo.update_trade_status(trade_id, "partial_exit", realized_pnl=total_pnl)
+            new_status = "partial_exit"
+        else:
+            # Bu duruma dusmemeli ama guvenlik icin
+            total_pnl = sum(e.get("pnl", 0) for e in remaining_exits)
+            self.repo.update_trade_status(trade_id, "closed", realized_pnl=total_pnl)
+            new_status = "closed"
+
+        text = (
+            f"↩️ <b>GERI ALINDI</b>\n"
+            f"\n"
+            f"#{trade_id} {symbol} — {exit_shares:.0f} lot @ {exit_price:.2f} TL satisi geri alindi\n"
+            f"PnL iptal: {exit_pnl:+,.0f} TL\n"
+            f"Trade durumu: {old_status} → {new_status}"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
