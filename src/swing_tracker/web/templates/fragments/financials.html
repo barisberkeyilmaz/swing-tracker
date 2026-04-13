@@ -1,0 +1,80 @@
+{% if rows %}
+<!-- Desktop: tam tablo -->
+<div class="hidden md:block overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-gray-500 uppercase border-b border-gray-700/30">
+                <th class="px-5 py-3 sticky left-0 bg-surface-light z-10">Kalem</th>
+                {% for col in columns %}
+                <th class="px-3 py-3 text-right whitespace-nowrap">{{ col }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-700/20">
+            {% for row in rows %}
+            <tr class="{% if row.highlight %}bg-white/[0.04]{% endif %} hover:bg-white/[0.06]">
+                <td class="px-5 py-2 text-xs sticky left-0 z-10 whitespace-nowrap
+                    {% if row.highlight %}bg-white/[0.04] text-white font-medium{% else %}bg-surface-light text-gray-300{% endif %}">
+                    <span class="inline-flex items-center gap-1.5 max-w-[200px]">
+                        <span class="truncate" title="{{ row.label }}">{{ row.label }}</span>
+                        {% if row.tooltip %}
+                        <span class="relative group flex-shrink-0 cursor-help">
+                            <span class="inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-500 group-hover:border-gray-300 text-gray-500 group-hover:text-gray-300 text-[10px] font-bold leading-none">i</span>
+                            <span class="absolute bottom-full left-0 mb-1.5 hidden group-hover:block z-20 w-56 px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-300 font-normal shadow-lg whitespace-normal">
+                                {{ row.tooltip }}
+                            </span>
+                        </span>
+                        {% endif %}
+                    </span>
+                </td>
+                {% for val in row.cells %}
+                <td class="px-3 py-2 text-right text-xs whitespace-nowrap
+                    {% if row.highlight %}text-white font-medium{% else %}text-white{% endif %}">{{ val }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Mobil: sadece onemli kalemler, kart gorunumu -->
+<div class="md:hidden">
+    {% set has_highlight = rows|selectattr('highlight')|list %}
+    {% if has_highlight %}
+    <div class="divide-y divide-gray-700/20">
+        {% for row in rows %}
+        {% if row.highlight %}
+        <div class="px-4 py-3">
+            <div class="flex items-center gap-1.5 mb-2">
+                <span class="text-xs text-gray-400 font-medium">{{ row.label }}</span>
+                {% if row.tooltip %}
+                <span class="relative group flex-shrink-0 cursor-help" onclick="this.classList.toggle('show-tip')">
+                    <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-gray-600 text-gray-600 text-[9px] font-bold leading-none">i</span>
+                    <span class="absolute bottom-full left-0 mb-1 hidden group-[.show-tip]:block z-20 w-52 px-2.5 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-300 font-normal shadow-lg whitespace-normal">
+                        {{ row.tooltip }}
+                    </span>
+                </span>
+                {% endif %}
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                {% for val in row.cells_short[:3] %}
+                <div class="text-center">
+                    <p class="text-[10px] text-gray-500 mb-0.5">{{ columns[loop.index0] }}</p>
+                    <p class="text-sm text-white font-medium">{{ val }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    <div class="px-4 py-2 border-t border-gray-700/30 text-center">
+        <p class="text-xs text-gray-500">Tam tablo icin yatay gorunume gecin</p>
+    </div>
+    {% else %}
+    <div class="px-4 py-6 text-center text-gray-500 text-sm">Onemli kalem bulunamadi</div>
+    {% endif %}
+</div>
+{% else %}
+<div class="px-5 py-8 text-center text-gray-500 text-sm">Finansal tablo verisi bulunamadi</div>
+{% endif %}

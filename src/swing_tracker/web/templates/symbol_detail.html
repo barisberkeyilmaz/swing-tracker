@@ -1,0 +1,524 @@
+{% extends "base.html" %}
+
+{% block title %}{{ symbol }} — Swing Tracker{% endblock %}
+
+{% block content %}
+{% if error %}
+<!-- Hata Durumu -->
+<div class="flex flex-col items-center justify-center py-16">
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-8 max-w-md w-full text-center">
+        <div class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-accent-yellow/10 mb-4">
+            <span class="text-accent-yellow text-2xl font-bold">!</span>
+        </div>
+        <h1 class="text-xl font-bold text-white mb-2">{{ symbol }} icin veri alinamadi</h1>
+        <p class="text-gray-400 text-sm mb-6">
+            Borsa kapali olabilir veya gecici bir baglanti sorunu yasaniyor.
+            Biraz sonra tekrar deneyin.
+        </p>
+        <div class="flex gap-3 justify-center">
+            <a href="/symbol/{{ symbol }}"
+                class="px-5 py-2.5 rounded-lg bg-accent-green/80 hover:bg-accent-green text-white text-sm font-medium transition-colors">
+                Tekrar Dene
+            </a>
+            <a href="/"
+                class="px-5 py-2.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium transition-colors">
+                Dashboard
+            </a>
+        </div>
+    </div>
+</div>
+{% else %}
+<!-- Header -->
+<div class="mb-6">
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-2">
+        <div class="flex items-center gap-3">
+            <h1 class="text-2xl sm:text-3xl font-bold text-white">{{ symbol }}</h1>
+            {% if fundamentals.sector and fundamentals.sector != '-' %}
+            <span class="px-2 py-0.5 rounded text-xs bg-surface-card/50 text-gray-400">{{ fundamentals.sector }}</span>
+            {% endif %}
+            {% if user_positions %}
+            <span class="px-2 py-0.5 rounded text-xs bg-accent-green/20 text-accent-green">{{ user_positions|length }} pozisyon</span>
+            {% endif %}
+        </div>
+        <a href="/" class="text-sm text-gray-500 hover:text-gray-300">&larr; Dashboard</a>
+    </div>
+    <div class="flex items-baseline gap-3">
+        <span class="text-3xl sm:text-4xl font-bold text-white">{{ "%.2f"|format(market.price or 0) }}</span>
+        <span class="text-lg font-medium
+            {% if (market.change or 0) >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
+            {{ "%+.2f"|format(market.change or 0) }}
+            ({{ "%+.2f"|format(market.change_pct or 0) }}%)
+        </span>
+    </div>
+</div>
+
+<!-- Fiyat & Piyasa + Temel Gostergeler -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
+    <!-- Fiyat & Piyasa -->
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Fiyat & Piyasa</h3>
+        <div class="space-y-2.5 text-sm">
+            <div class="flex justify-between">
+                <span class="text-gray-500">Acilis</span>
+                <span class="text-white">{{ "%.2f"|format(market.open or 0) }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Yuksek</span>
+                <span class="text-accent-green">{{ "%.2f"|format(market.high or 0) }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Dusuk</span>
+                <span class="text-accent">{{ "%.2f"|format(market.low or 0) }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Onceki Kapanis</span>
+                <span class="text-white">{{ "%.2f"|format(market.prev_close or 0) }}</span>
+            </div>
+            <div class="border-t border-gray-700/30 pt-2.5"></div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Hacim (Lot)</span>
+                <span class="text-white">{{ "{:,.0f}".format(market.volume or 0) }}</span>
+            </div>
+            {% if market.amount %}
+            <div class="flex justify-between">
+                <span class="text-gray-500">Hacim (TL)</span>
+                <span class="text-white">{{ "{:,.0f}".format(market.amount) }}</span>
+            </div>
+            {% endif %}
+            <div class="border-t border-gray-700/30 pt-2.5"></div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">52H Yuksek</span>
+                <span class="text-white">{{ "%.2f"|format(market.week52_high or 0) }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">52H Dusuk</span>
+                <span class="text-white">{{ "%.2f"|format(market.week52_low or 0) }}</span>
+            </div>
+            {% if market.week52_high and market.week52_low and market.price %}
+            <div class="w-full h-2 bg-gray-700 rounded-full overflow-hidden relative">
+                {% set range52 = market.week52_high - market.week52_low %}
+                {% if range52 > 0 %}
+                {% set pos52 = ((market.price - market.week52_low) / range52 * 100) %}
+                <div class="absolute top-0 h-full w-1.5 bg-white rounded-full" style="left: {{ [pos52, 98]|min }}%"></div>
+                {% endif %}
+            </div>
+            {% endif %}
+            <div class="flex justify-between">
+                <span class="text-gray-500">Piyasa Degeri</span>
+                <span class="text-white font-medium">{{ market.market_cap_fmt }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Temel Gostergeler -->
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Temel Gostergeler</h3>
+        <div class="space-y-2.5 text-sm">
+            <div class="flex justify-between">
+                <span class="text-gray-500">F/K Orani</span>
+                <span class="text-white font-medium">{{ "%.2f"|format(fundamentals.pe) if fundamentals.pe else '-' }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">PD/DD</span>
+                <span class="text-white font-medium">{{ "%.2f"|format(fundamentals.pb) if fundamentals.pb else '-' }}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">EV/EBITDA</span>
+                <span class="text-white font-medium">{{ "%.2f"|format(fundamentals.ev_ebitda) if fundamentals.ev_ebitda else '-' }}</span>
+            </div>
+            <div class="border-t border-gray-700/30 pt-2.5"></div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Serbest Dolasim</span>
+                <span class="text-white">{{ "%.1f"|format(fundamentals.free_float) if fundamentals.free_float else '-' }}%</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Yabanci Orani</span>
+                <span class="text-white">{{ "%.1f"|format(fundamentals.foreign_ratio) if fundamentals.foreign_ratio else '-' }}%</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Temettu Verimi</span>
+                <span class="text-white">{{ "%.2f"|format(fundamentals.dividend_yield) if fundamentals.dividend_yield else '-' }}%</span>
+            </div>
+            {% if fundamentals.industry and fundamentals.industry != '-' %}
+            <div class="border-t border-gray-700/30 pt-2.5"></div>
+            <div class="flex justify-between">
+                <span class="text-gray-500">Sektor</span>
+                <span class="text-gray-300 text-xs">{{ fundamentals.industry }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Teknik Gorunum -->
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Teknik Gorunum</h3>
+        {% if technical %}
+        <div class="space-y-2.5 text-sm">
+            {% if technical.rsi is defined %}
+            <div class="flex justify-between items-center">
+                <span class="text-gray-500">RSI (14)</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-white font-medium">{{ technical.rsi }}</span>
+                    <span class="px-1.5 py-0.5 rounded text-xs
+                        {% if technical.rsi < 30 %}bg-accent-green/20 text-accent-green
+                        {% elif technical.rsi > 70 %}bg-accent/20 text-accent
+                        {% else %}bg-gray-600/30 text-gray-400{% endif %}">
+                        {{ technical.rsi_label }}
+                    </span>
+                </div>
+            </div>
+            {% endif %}
+            {% if technical.macd is defined %}
+            <div class="flex justify-between items-center">
+                <span class="text-gray-500">MACD</span>
+                <span class="px-1.5 py-0.5 rounded text-xs
+                    {% if technical.macd_label == 'Pozitif' %}bg-accent-green/20 text-accent-green
+                    {% else %}bg-accent/20 text-accent{% endif %}">
+                    {{ technical.macd_label }}
+                </span>
+            </div>
+            {% endif %}
+            {% if technical.stoch_k is defined %}
+            <div class="flex justify-between items-center">
+                <span class="text-gray-500">Stochastic</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-white">{{ technical.stoch_k }}</span>
+                    <span class="px-1.5 py-0.5 rounded text-xs
+                        {% if technical.stoch_k < 20 %}bg-accent-green/20 text-accent-green
+                        {% elif technical.stoch_k > 80 %}bg-accent/20 text-accent
+                        {% else %}bg-gray-600/30 text-gray-400{% endif %}">
+                        {{ technical.stoch_label }}
+                    </span>
+                </div>
+            </div>
+            {% endif %}
+            <div class="border-t border-gray-700/30 pt-2.5"></div>
+            {% for period in [50, 100, 200] %}
+            {% set key = 'sma_' ~ period %}
+            {% if technical[key] is defined %}
+            <div class="flex justify-between items-center">
+                <span class="text-gray-500">SMA {{ period }}</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-white text-xs">{{ technical[key] }}</span>
+                    {% if technical[key ~ '_above'] %}
+                    <span class="px-1.5 py-0.5 rounded text-xs bg-accent-green/20 text-accent-green">Ustunde</span>
+                    {% else %}
+                    <span class="px-1.5 py-0.5 rounded text-xs bg-accent/20 text-accent">Altinda</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+            {% if technical.bb_position is defined %}
+            <div class="flex justify-between items-center">
+                <span class="text-gray-500">Bollinger</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-white text-xs">%{{ technical.bb_position }}</span>
+                    <span class="px-1.5 py-0.5 rounded text-xs
+                        {% if technical.bb_label == 'Alt Bant' %}bg-accent-green/20 text-accent-green
+                        {% elif technical.bb_label == 'Ust Bant' %}bg-accent/20 text-accent
+                        {% else %}bg-gray-600/30 text-gray-400{% endif %}">
+                        {{ technical.bb_label }}
+                    </span>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="text-gray-500 text-sm">Teknik veri alinamadi</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Fiyat Grafigi -->
+{% if chart_data and chart_data.dates %}
+<div class="bg-surface-light rounded-xl border border-gray-700/30 p-5 mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider">Fiyat Grafigi</h3>
+        <div class="flex gap-1">
+            {% for p, label in [('1mo', '1A'), ('3mo', '3A'), ('6mo', '6A'), ('1y', '1Y')] %}
+            <button onclick="loadChart('{{ p }}')"
+                id="btn-{{ p }}"
+                class="px-3 py-1 rounded text-xs font-medium transition-colors
+                    {% if p == '6mo' %}bg-white/10 text-white{% else %}text-gray-500 hover:text-white hover:bg-white/5{% endif %}">
+                {{ label }}
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="h-48 sm:h-64 lg:h-80">
+        <canvas id="priceChart"></canvas>
+    </div>
+</div>
+{% endif %}
+
+<!-- Analist + Ortaklik Yapisi -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6">
+    <!-- Analist Gorusleri -->
+    {% if analyst %}
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Analist Gorusleri</h3>
+        <div class="space-y-3">
+            {% if analyst.recommendation %}
+            <div class="flex items-center justify-between">
+                <span class="text-gray-500">Konsensus</span>
+                <span class="px-3 py-1 rounded-lg text-sm font-bold
+                    {% if analyst.recommendation == 'AL' %}bg-accent-green/20 text-accent-green
+                    {% elif analyst.recommendation == 'SAT' %}bg-accent/20 text-accent
+                    {% else %}bg-accent-yellow/20 text-accent-yellow{% endif %}">
+                    {{ analyst.recommendation }}
+                </span>
+            </div>
+            {% endif %}
+            {% if analyst.target_price %}
+            <div class="flex justify-between text-sm">
+                <span class="text-gray-500">Hedef Fiyat</span>
+                <span class="text-white font-medium">{{ "%.2f"|format(analyst.target_price) }} TL</span>
+            </div>
+            {% endif %}
+            {% if analyst.upside is not none %}
+            <div class="flex justify-between text-sm">
+                <span class="text-gray-500">Potansiyel</span>
+                <span class="font-medium
+                    {% if analyst.upside >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
+                    {{ "%+.1f"|format(analyst.upside) }}%
+                </span>
+            </div>
+            {% endif %}
+            {% if analyst.target_low %}
+            <div class="border-t border-gray-700/30 pt-3"></div>
+            <div class="grid grid-cols-4 gap-2 text-center text-xs">
+                <div>
+                    <p class="text-gray-500 mb-1">Min</p>
+                    <p class="text-white">{{ "%.0f"|format(analyst.target_low) }}</p>
+                </div>
+                <div>
+                    <p class="text-gray-500 mb-1">Ort</p>
+                    <p class="text-white font-medium">{{ "%.0f"|format(analyst.target_mean or 0) }}</p>
+                </div>
+                <div>
+                    <p class="text-gray-500 mb-1">Medyan</p>
+                    <p class="text-white">{{ "%.0f"|format(analyst.target_median or 0) }}</p>
+                </div>
+                <div>
+                    <p class="text-gray-500 mb-1">Max</p>
+                    <p class="text-white">{{ "%.0f"|format(analyst.target_high or 0) }}</p>
+                </div>
+            </div>
+            {% if analyst.analyst_count %}
+            <p class="text-xs text-gray-500 text-center">{{ analyst.analyst_count }} analist</p>
+            {% endif %}
+            {% endif %}
+            {% if analyst.total_rec %}
+            <div class="border-t border-gray-700/30 pt-3"></div>
+            <div class="flex h-4 rounded-full overflow-hidden">
+                {% if analyst.strong_buy + analyst.buy > 0 %}
+                <div class="bg-accent-green" style="width: {{ (analyst.strong_buy + analyst.buy) / analyst.total_rec * 100 }}%"></div>
+                {% endif %}
+                {% if analyst.hold > 0 %}
+                <div class="bg-accent-yellow" style="width: {{ analyst.hold / analyst.total_rec * 100 }}%"></div>
+                {% endif %}
+                {% if analyst.sell + analyst.strong_sell > 0 %}
+                <div class="bg-accent" style="width: {{ (analyst.sell + analyst.strong_sell) / analyst.total_rec * 100 }}%"></div>
+                {% endif %}
+            </div>
+            <div class="flex justify-between text-xs text-gray-500 mt-1">
+                <span>Al: {{ analyst.strong_buy + analyst.buy }}</span>
+                <span>Tut: {{ analyst.hold }}</span>
+                <span>Sat: {{ analyst.sell + analyst.strong_sell }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Ortaklik Yapisi -->
+    {% if holders %}
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 p-5">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider mb-4">Ortaklik Yapisi</h3>
+        <div class="space-y-2">
+            {% for h in holders %}
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <span class="text-gray-300 truncate mr-2">{{ h.name }}</span>
+                    <span class="text-white font-medium whitespace-nowrap">%{{ "%.2f"|format(h.pct) }}</span>
+                </div>
+                <div class="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full bg-blue-500/60 rounded-full" style="width: {{ h.pct }}%"></div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Finansal Tablolar (HTMX lazy load) -->
+<div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden mb-6">
+    <div class="px-5 py-3 border-b border-gray-700/30 flex flex-wrap items-center justify-between gap-2">
+        <h3 class="text-xs text-gray-400 uppercase tracking-wider">Finansal Tablolar</h3>
+        <div class="flex gap-1">
+            <button onclick="loadFinancials('income_stmt')" id="fin-income_stmt"
+                class="px-3 py-1 rounded text-xs font-medium bg-white/10 text-white">Gelir</button>
+            <button onclick="loadFinancials('balance_sheet')" id="fin-balance_sheet"
+                class="px-3 py-1 rounded text-xs font-medium text-gray-500 hover:text-white hover:bg-white/5">Bilanco</button>
+            <button onclick="loadFinancials('cashflow')" id="fin-cashflow"
+                class="px-3 py-1 rounded text-xs font-medium text-gray-500 hover:text-white hover:bg-white/5">Nakit Akis</button>
+        </div>
+    </div>
+    <div id="financials-content"
+        hx-get="/symbol/{{ symbol }}/financials?tab=income_stmt"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        <div class="px-5 py-8 text-center text-gray-500 text-sm">
+            <span class="animate-pulse">Yukleniyor...</span>
+        </div>
+    </div>
+</div>
+
+<!-- KAP Haberleri + ETF (HTMX lazy load) -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6">
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-700/30">
+            <h3 class="text-xs text-gray-400 uppercase tracking-wider">KAP Haberleri & Takvim</h3>
+        </div>
+        <div id="news-content"
+            hx-get="/symbol/{{ symbol }}/news"
+            hx-trigger="load"
+            hx-swap="innerHTML">
+            <div class="px-5 py-8 text-center text-gray-500 text-sm">
+                <span class="animate-pulse">Yukleniyor...</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-700/30">
+            <h3 class="text-xs text-gray-400 uppercase tracking-wider">ETF Pozisyonlari</h3>
+        </div>
+        <div id="etf-content"
+            hx-get="/symbol/{{ symbol }}/etf-holders"
+            hx-trigger="load"
+            hx-swap="innerHTML">
+            <div class="px-5 py-8 text-center text-gray-500 text-sm">
+                <span class="animate-pulse">Yukleniyor...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pozisyon Bilgisi -->
+{% if user_positions %}
+<div class="bg-surface-light rounded-xl border border-accent-green/30 p-5 mb-6">
+    <h3 class="text-xs text-accent-green uppercase tracking-wider mb-3">Acik Pozisyonlar ({{ user_positions|length }})</h3>
+    <div class="space-y-3">
+        {% for pos in user_positions %}
+        <div class="flex flex-wrap items-center justify-between gap-3{% if not loop.last %} pb-3 border-b border-gray-700/20{% endif %}">
+            <div>
+                <p class="text-white text-sm">
+                    {{ pos.shares|int }} lot @ {{ "%.2f"|format(pos.entry_price or 0) }} TL
+                    <span class="text-gray-500 ml-1 text-xs">{{ pos.entry_date[:10] if pos.entry_date else '' }}</span>
+                </p>
+                <p class="text-xs text-gray-500 mt-0.5">
+                    Maliyet: {{ "{:,.0f}".format(pos.total_cost or 0) }} TL
+                    <span class="ml-2 px-1.5 py-0.5 rounded
+                        {% if pos.status == 'partial_exit' %}bg-accent-yellow/20 text-accent-yellow
+                        {% else %}bg-accent-green/20 text-accent-green{% endif %}">
+                        {{ pos.status }}
+                    </span>
+                </p>
+            </div>
+            <a href="/trades/{{ pos.id }}"
+                class="px-4 py-2 min-h-[44px] rounded-lg bg-accent-green/20 hover:bg-accent-green/30 text-accent-green text-sm font-medium transition-colors flex items-center">
+                Detay
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Chart.js -->
+{% if chart_data and chart_data.dates %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+const chartData = {{ chart_data|tojson }};
+let priceChart;
+
+function createChart(data) {
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    if (priceChart) priceChart.destroy();
+
+    priceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.dates,
+            datasets: [{
+                label: '{{ symbol }}',
+                data: data.prices,
+                borderColor: '#00b894',
+                borderWidth: 1.5,
+                fill: true,
+                backgroundColor: 'rgba(0, 184, 148, 0.05)',
+                pointRadius: 0,
+                pointHitRadius: 10,
+                tension: 0.1,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ctx.parsed.y.toFixed(2) + ' TL'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255,255,255,0.03)' },
+                    ticks: { color: '#6b7280', maxTicksLimit: 8, font: { size: 10 } }
+                },
+                y: {
+                    grid: { color: 'rgba(255,255,255,0.03)' },
+                    ticks: { color: '#6b7280', font: { size: 10 } },
+                    position: 'right'
+                }
+            }
+        }
+    });
+}
+
+function loadChart(period) {
+    document.querySelectorAll('[id^="btn-"]').forEach(b => {
+        b.className = 'px-3 py-1 rounded text-xs font-medium text-gray-500 hover:text-white hover:bg-white/5 transition-colors';
+    });
+    document.getElementById('btn-' + period).className = 'px-3 py-1 rounded text-xs font-medium bg-white/10 text-white transition-colors';
+
+    fetch('/symbol/{{ symbol }}/chart-data?period=' + period)
+        .then(r => r.json())
+        .then(data => { if (data.dates.length) createChart(data); });
+}
+
+createChart(chartData);
+</script>
+{% endif %}
+
+<!-- Finansal tablo tab degisimi -->
+<script>
+function loadFinancials(tab) {
+    document.querySelectorAll('[id^="fin-"]').forEach(b => {
+        b.className = 'px-3 py-1 rounded text-xs font-medium text-gray-500 hover:text-white hover:bg-white/5 transition-colors';
+    });
+    document.getElementById('fin-' + tab).className = 'px-3 py-1 rounded text-xs font-medium bg-white/10 text-white transition-colors';
+
+    const el = document.getElementById('financials-content');
+    el.innerHTML = '<div class="px-5 py-8 text-center text-gray-500 text-sm"><span class="animate-pulse">Yukleniyor...</span></div>';
+    htmx.ajax('GET', '/symbol/{{ symbol }}/financials?tab=' + tab, '#financials-content');
+}
+</script>
+{% endif %}
+{% endblock %}

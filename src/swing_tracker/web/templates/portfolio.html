@@ -67,13 +67,12 @@
                     <th class="px-3 py-3 text-right">TP1</th>
                     <th class="px-3 py-3 text-right">Realize K/Z</th>
                     <th class="px-3 py-3">Tarih</th>
-                    <th class="px-3 py-3">Detay</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-700/20">
                 {% for t in open_trades %}
-                <tr class="hover:bg-white/[0.02] transition-colors">
-                    <td class="px-5 py-3 font-semibold text-white">{{ t.symbol }}</td>
+                <tr class="hover:bg-white/[0.02] transition-colors cursor-pointer" onclick="window.location='/trades/{{ t.id }}'">
+                    <td class="px-5 py-3 font-semibold"><a href="/symbol/{{ t.symbol }}" onclick="event.stopPropagation()" class="text-white hover:text-accent-green transition-colors">{{ t.symbol }}</a></td>
                     <td class="px-3 py-3">
                         <span class="px-2 py-0.5 rounded text-xs font-medium
                             {% if t.status == 'partial_exit' %}bg-accent-yellow/20 text-accent-yellow
@@ -100,9 +99,6 @@
                         {% endif %}
                     </td>
                     <td class="px-3 py-3 text-gray-400">{{ t.entry_date[:10] if t.entry_date else '-' }}</td>
-                    <td class="px-3 py-3">
-                        <a href="/trades/{{ t.id }}" class="text-blue-400 hover:text-blue-300 text-xs">Gor</a>
-                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -110,10 +106,10 @@
     </div>
     <div class="md:hidden divide-y divide-gray-700/30">
         {% for t in open_trades %}
-        <a href="/trades/{{ t.id }}" class="block px-4 py-3 hover:bg-white/[0.03] transition-colors">
+        <div class="px-4 py-3 hover:bg-white/[0.03] transition-colors cursor-pointer" onclick="window.location='/trades/{{ t.id }}'">
             <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-2">
-                    <span class="text-white font-semibold">{{ t.symbol }}</span>
+                    <a href="/symbol/{{ t.symbol }}" onclick="event.stopPropagation()" class="text-white font-semibold hover:text-accent-green transition-colors">{{ t.symbol }}</a>
                     <span class="px-2 py-0.5 rounded text-xs font-medium
                         {% if t.status == 'partial_exit' %}bg-accent-yellow/20 text-accent-yellow
                         {% else %}bg-accent-green/20 text-accent-green{% endif %}">
@@ -152,7 +148,7 @@
                 </span>
             </div>
             {% endif %}
-        </a>
+        </div>
         {% endfor %}
     </div>
     {% else %}
@@ -179,13 +175,12 @@
                     <th class="px-3 py-3 text-right">K/Z %</th>
                     <th class="px-3 py-3">Giris</th>
                     <th class="px-3 py-3">Cikis</th>
-                    <th class="px-3 py-3">Detay</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-700/20">
                 {% for t in closed_trades %}
-                <tr class="hover:bg-white/[0.02] transition-colors">
-                    <td class="px-5 py-3 font-semibold text-white">{{ t.symbol }}</td>
+                <tr class="hover:bg-white/[0.02] transition-colors cursor-pointer" onclick="window.location='/trades/{{ t.id }}'">
+                    <td class="px-5 py-3 font-semibold"><a href="/symbol/{{ t.symbol }}" onclick="event.stopPropagation()" class="text-white hover:text-accent-green transition-colors">{{ t.symbol }}</a></td>
                     <td class="px-3 py-3 text-right text-gray-300">{{ "%.2f"|format(t.entry_price or 0) }}</td>
                     <td class="px-3 py-3 text-right text-gray-300">{{ "%.2f"|format(t.exit_price_avg or 0) }}</td>
                     <td class="px-3 py-3 text-right text-gray-300">{{ t.shares|int }}</td>
@@ -199,9 +194,6 @@
                     </td>
                     <td class="px-3 py-3 text-gray-400 text-xs">{{ t.entry_date[:10] if t.entry_date else '-' }}</td>
                     <td class="px-3 py-3 text-gray-400 text-xs">{{ t.exit_date[:10] if t.exit_date else '-' }}</td>
-                    <td class="px-3 py-3">
-                        <a href="/trades/{{ t.id }}" class="text-blue-400 hover:text-blue-300 text-xs">Gor</a>
-                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -209,9 +201,9 @@
     </div>
     <div class="md:hidden divide-y divide-gray-700/30">
         {% for t in closed_trades %}
-        <a href="/trades/{{ t.id }}" class="block px-4 py-3 hover:bg-white/[0.03] transition-colors">
+        <div class="px-4 py-3 hover:bg-white/[0.03] transition-colors cursor-pointer" onclick="window.location='/trades/{{ t.id }}'">
             <div class="flex items-center justify-between mb-2">
-                <span class="text-white font-semibold">{{ t.symbol }}</span>
+                <a href="/symbol/{{ t.symbol }}" onclick="event.stopPropagation()" class="text-white font-semibold hover:text-accent-green transition-colors">{{ t.symbol }}</a>
                 <span class="text-xs text-gray-500">{{ t.entry_date[:10] if t.entry_date else '-' }} &rarr; {{ t.exit_date[:10] if t.exit_date else '-' }}</span>
             </div>
             <div class="flex items-center gap-2 text-sm mb-2">
@@ -228,7 +220,7 @@
                     {{ "%+.1f"|format(t.realized_pnl_pct or 0) }}%
                 </span>
             </div>
-        </a>
+        </div>
         {% endfor %}
     </div>
     {% else %}

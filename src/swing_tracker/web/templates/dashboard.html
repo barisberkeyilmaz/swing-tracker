@@ -74,10 +74,10 @@
             {% if open_trades %}
             <div class="divide-y divide-gray-700/30">
                 {% for trade in open_trades %}
-                <a href="/trades/{{ trade.id }}" class="block px-5 py-4 hover:bg-white/[0.03] transition-colors cursor-pointer">
+                <div class="px-5 py-4 hover:bg-white/[0.03] transition-colors cursor-pointer" onclick="window.location='/trades/{{ trade.id }}'">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-3">
-                            <span class="text-white font-semibold text-lg">{{ trade.symbol }}</span>
+                            <a href="/symbol/{{ trade.symbol }}" onclick="event.stopPropagation()" class="text-white font-semibold text-lg hover:text-accent-green transition-colors">{{ trade.symbol }}</a>
                             <span class="px-2 py-0.5 rounded text-xs font-medium
                                 {% if trade.status == 'partial_exit' %}
                                     bg-accent-yellow/20 text-accent-yellow
@@ -135,7 +135,7 @@
                         {% endfor %}
                     </div>
                     {% endif %}
-                </a>
+                </div>
                 {% endfor %}
             </div>
             {% else %}
@@ -159,7 +159,7 @@
                 {% for sig in recent_signals %}
                 <div class="px-5 py-3 hover:bg-white/[0.02] transition-colors">
                     <div class="flex items-center justify-between mb-1">
-                        <span class="text-white font-medium">{{ sig.symbol }}</span>
+                        <a href="/symbol/{{ sig.symbol }}" class="text-white font-medium hover:text-accent-green transition-colors">{{ sig.symbol }}</a>
                         <span class="text-xs px-2 py-0.5 rounded
                             {% if sig.strength == 'strong' %}
                                 bg-accent-green/20 text-accent-green
