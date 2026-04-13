@@ -12,6 +12,28 @@ from swing_tracker.db.repository import Repository
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 
+# Turkish status label mapping — used in all templates via {{ STATUS_TR.get(key, key) }}
+STATUS_TR = {
+    "open": "ACIK",
+    "partial_exit": "KISMI CIKIS",
+    "closed": "KAPALI",
+    "strong": "GUCLU",
+    "medium": "ORTA",
+    "long": "UZUN",
+    "short": "KISA",
+    "tp1": "TP1",
+    "tp2": "TP2",
+    "tp3": "TP3",
+    "sl": "STOP LOSS",
+    "trailing": "TAKIP STOP",
+    "manual": "MANUEL",
+    "deposit": "YATIRMA",
+    "withdrawal": "CEKME",
+    "buy": "ALIM",
+    "sell": "SATIM",
+}
+templates.env.globals["STATUS_TR"] = STATUS_TR
+
 
 class AppState:
     """Application-wide shared state, initialized at startup."""

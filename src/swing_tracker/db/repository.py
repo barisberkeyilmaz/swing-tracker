@@ -151,11 +151,35 @@ class Repository:
         self._conn.commit()
         return cur.lastrowid
 
+    def get_exit(self, exit_id: int) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM trade_exits WHERE id = ?", (exit_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def delete_exit(self, exit_id: int) -> None:
+        self._conn.execute("DELETE FROM trade_exits WHERE id = ?", (exit_id,))
+        self._conn.commit()
+
     def get_trade_exits(self, trade_id: int) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM trade_exits WHERE trade_id = ?", (trade_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def delete_sell_transaction(self, trade_id: int, amount: float) -> bool:
+        """En son eslesen sell cash transaction'i sil. Bulunamazsa False doner."""
+        cur = self._conn.execute(
+            """DELETE FROM cash_transactions WHERE id = (
+                SELECT id FROM cash_transactions
+                WHERE related_trade_id = ? AND transaction_type = 'sell'
+                AND ABS(amount - ?) < 0.01
+                ORDER BY created_at DESC LIMIT 1
+            )""",
+            (trade_id, amount),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
 
     def get_last_exit(self) -> dict | None:
         """Son yapilan exit kaydini dondurur (tum trade'ler arasinda)."""

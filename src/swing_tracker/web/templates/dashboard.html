@@ -1,60 +1,61 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard — Swing Tracker{% endblock %}
-{% block nav_dashboard %}text-white bg-white/10{% endblock %}
-{% block mobile_nav_dashboard %}text-white bg-white/10{% endblock %}
+{% block title %}Genel — Swing Tracker{% endblock %}
+{% block nav_dashboard %}text-accent bg-accent/10{% endblock %}
+{% block bottom_nav_dashboard %}text-accent{% endblock %}
 
 {% block content %}
-<!-- Sermaye Ozeti -->
-<div class="bg-surface-light rounded-xl border border-gray-700/30 p-5 mb-6">
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-        <div>
-            <p class="text-xs text-gray-500 mb-1">Eldeki Nakit</p>
-            <p class="text-xl sm:text-2xl font-bold {% if capital.available_cash >= 0 %}text-white{% else %}text-accent{% endif %}">
-                {{ "{:,.0f}".format(capital.available_cash) }} <span class="text-xs text-gray-500">TL</span>
-            </p>
-            <p class="text-xs text-gray-600">yatirilan: {{ "{:,.0f}".format(capital.deposits) }}</p>
-        </div>
-        <div>
-            <p class="text-xs text-gray-500 mb-1">Pozisyonlarda</p>
-            <p class="text-xl sm:text-2xl font-bold text-white">{{ "{:,.0f}".format(capital.open_cost) }} <span class="text-xs text-gray-500">TL</span></p>
-            <p class="text-xs text-gray-600">{{ open_trades|length }} pozisyon</p>
-        </div>
-        <div>
-            <p class="text-xs text-gray-500 mb-1">Toplam Portfoy</p>
-            <p class="text-xl sm:text-2xl font-bold text-white">{{ "{:,.0f}".format(capital.total_portfolio) }} <span class="text-xs text-gray-500">TL</span></p>
-        </div>
-        <div>
-            <p class="text-xs text-gray-500 mb-1">Realize K/Z</p>
-            <p class="text-xl sm:text-2xl font-bold {% if capital.realized_pnl >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
-                {{ "{:+,.0f}".format(capital.realized_pnl) }} <span class="text-xs text-gray-500">TL</span>
-            </p>
-            <p class="text-xs text-gray-500">{{ capital.winning_exits }}/{{ capital.total_exits }} (%{{ "%.0f"|format(capital.win_rate) }})</p>
-        </div>
-        <div>
-            <p class="text-xs text-gray-500 mb-2">Nakit Islem</p>
-            <div class="flex gap-1">
-                <input type="number" step="1" placeholder="Tutar" id="cashAmount"
-                    class="w-20 sm:w-24 min-w-0 px-2 py-1 rounded bg-surface text-white text-sm border border-gray-700 focus:border-blue-500 focus:outline-none">
-                <form action="/cash/add" method="post" class="inline"
-                    onsubmit="this.querySelector('[name=amount]').value = document.getElementById('cashAmount').value">
-                    <input type="hidden" name="amount">
-                    <button type="submit" title="Nakit ekle"
-                        class="px-2.5 py-1 rounded bg-accent-green/80 hover:bg-accent-green text-white text-sm font-bold transition-colors">
-                        +
-                    </button>
-                </form>
-                <form action="/cash/withdraw" method="post" class="inline"
-                    onsubmit="this.querySelector('[name=amount]').value = document.getElementById('cashAmount').value">
-                    <input type="hidden" name="amount">
-                    <button type="submit" title="Nakit cek"
-                        class="px-2.5 py-1 rounded bg-accent/80 hover:bg-accent text-white text-sm font-bold transition-colors">
-                        &minus;
-                    </button>
-                </form>
-            </div>
-        </div>
+<!-- Hero: Portfoy Ozeti -->
+<div class="mb-6">
+    <div class="mb-3">
+        <p class="text-xs font-medium text-txt-muted uppercase tracking-wide">Toplam Portfoy</p>
+        <p class="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-txt-primary">
+            {{ "{:,.0f}".format(capital.total_portfolio) }}
+            <span class="text-base font-normal text-txt-ghost">TL</span>
+        </p>
     </div>
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+        <span class="text-txt-muted">
+            Nakit
+            <span class="font-mono font-semibold tabular-nums {% if capital.available_cash >= 0 %}text-txt-primary{% else %}text-negative{% endif %}">{{ "{:,.0f}".format(capital.available_cash) }}</span>
+        </span>
+        <span class="text-txt-ghost">|</span>
+        <span class="text-txt-muted">
+            Pozisyonlar
+            <span class="font-mono font-semibold tabular-nums text-txt-primary">{{ "{:,.0f}".format(capital.open_cost) }}</span>
+            <span class="text-txt-ghost">({{ open_trades|length }})</span>
+        </span>
+        <span class="text-txt-ghost">|</span>
+        <span class="text-txt-muted">
+            K/Z
+            <span class="font-mono font-semibold tabular-nums {% if capital.realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">{{ "{:+,.0f}".format(capital.realized_pnl) }}</span>
+            <span class="text-txt-ghost">%{{ "%.0f"|format(capital.win_rate) }} ({{ capital.winning_exits }}/{{ capital.total_exits }})</span>
+        </span>
+    </div>
+    <details class="mt-3">
+        <summary class="text-xs text-txt-ghost cursor-pointer hover:text-txt-muted select-none">Nakit islem</summary>
+        <div class="flex items-center gap-1 mt-2">
+            <input type="number" step="1" placeholder="Tutar" id="cashAmount"
+                class="w-24 min-w-0 px-2 py-1.5 rounded bg-surface-sunken text-txt-primary text-sm border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none">
+            <form action="/cash/add" method="post" class="inline"
+                onsubmit="this.querySelector('[name=amount]').value = document.getElementById('cashAmount').value">
+                <input type="hidden" name="amount">
+                <button type="submit" title="Nakit ekle"
+                    class="px-2.5 py-1.5 rounded bg-positive/80 hover:bg-positive text-txt-primary text-sm font-bold transition-colors">
+                    +
+                </button>
+            </form>
+            <form action="/cash/withdraw" method="post" class="inline"
+                onsubmit="this.querySelector('[name=amount]').value = document.getElementById('cashAmount').value">
+                <input type="hidden" name="amount">
+                <button type="submit" title="Nakit cek"
+                    class="px-2.5 py-1.5 rounded bg-negative/80 hover:bg-negative text-txt-primary text-sm font-bold transition-colors">
+                    &minus;
+                </button>
+            </form>
+            <span class="text-xs text-txt-ghost ml-2">yatirilan: {{ "{:,.0f}".format(capital.deposits) }}</span>
+        </div>
+    </details>
 </div>
 
 <!-- Iki kolonlu layout -->
@@ -62,135 +63,132 @@
 
     <!-- Acik Pozisyonlar (sol, 2/3) -->
     <div class="lg:col-span-2">
-        <div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
-            <div class="px-5 py-3 border-b border-gray-700/30 flex items-center justify-between">
-                <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Acik Pozisyonlar</h2>
-                <button onclick="document.getElementById('manualBuyModal').classList.remove('hidden')"
-                    class="px-3 py-1 rounded bg-accent-green/80 hover:bg-accent-green text-white text-xs font-medium transition-colors">
-                    + Manuel Alis
-                </button>
-            </div>
-
-            {% if open_trades %}
-            <div class="divide-y divide-gray-700/30">
-                {% for trade in open_trades %}
-                <a href="/trades/{{ trade.id }}" class="block px-5 py-4 hover:bg-white/[0.03] transition-colors cursor-pointer">
-                    <div class="flex items-center justify-between mb-2">
-                        <div class="flex items-center gap-3">
-                            <span class="text-white font-semibold text-lg">{{ trade.symbol }}</span>
-                            <span class="px-2 py-0.5 rounded text-xs font-medium
-                                {% if trade.status == 'partial_exit' %}
-                                    bg-accent-yellow/20 text-accent-yellow
-                                {% else %}
-                                    bg-accent-green/20 text-accent-green
-                                {% endif %}">
-                                {{ trade.status|upper }}
-                            </span>
-                        </div>
-                        <span class="text-sm text-gray-400">
-                            {{ trade.entry_date[:10] if trade.entry_date else '-' }}
-                        </span>
-                    </div>
-
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-sm">
-                        <div>
-                            <span class="text-gray-500">Giris</span>
-                            <p class="text-white font-medium">{{ "%.2f"|format(trade.entry_price or 0) }} TL</p>
-                        </div>
-                        <div>
-                            <span class="text-gray-500">Maliyet</span>
-                            <p class="text-white font-medium">{{ "{:,.0f}".format(trade.total_cost or 0) }} TL</p>
-                        </div>
-                        <div>
-                            <span class="text-gray-500">Lot</span>
-                            <p class="text-white font-medium">{{ trade.remaining_shares|int }} <span class="text-gray-600">/ {{ trade.shares|int }}</span></p>
-                        </div>
-                        <div>
-                            <span class="text-gray-500">SL / TP1</span>
-                            <p><span class="text-accent font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }}</span>
-                            <span class="text-gray-600">/</span>
-                            <span class="text-accent-green font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }}</span></p>
-                        </div>
-                        <div>
-                            <span class="text-gray-500">Realize K/Z</span>
-                            {% if trade.exits %}
-                            <p class="font-medium {% if trade.realized_pnl >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
-                                {{ "{:+,.0f}".format(trade.realized_pnl) }} TL
-                            </p>
-                            {% else %}
-                            <p class="text-gray-600">—</p>
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    {% if trade.exits %}
-                    <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                        {% for ex in trade.exits %}
-                        <span class="px-2 py-0.5 rounded bg-surface-card/50 text-gray-400">
-                            {{ ex.shares|int }} lot @ {{ "%.2f"|format(ex.price) }}
-                            <span class="{% if (ex.pnl or 0) >= 0 %}text-accent-green{% else %}text-accent{% endif %}">
-                                ({{ "{:+,.0f}".format(ex.pnl or 0) }})
-                            </span>
-                        </span>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-                </a>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="px-5 py-12 text-center text-gray-500">
-                <p class="text-lg mb-1">Acik pozisyon yok</p>
-                <p class="text-sm">Yeni sinyaller icin tarama sonuclarini kontrol edin.</p>
-            </div>
-            {% endif %}
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-txt-primary">Acik Pozisyonlar</h2>
+            <button onclick="document.getElementById('manualBuyModal').classList.remove('hidden')"
+                class="px-3 py-1 rounded bg-positive/80 hover:bg-positive text-txt-primary text-xs font-medium transition-colors">
+                + Manuel Alis
+            </button>
         </div>
+
+        {% if open_trades %}
+        <div class="divide-y divide-border-subtle">
+            {% for trade in open_trades %}
+            <div class="py-4 hover:bg-surface-raised/50 transition-colors cursor-pointer rounded-lg px-3 -mx-3" onclick="window.location='/trades/{{ trade.id }}'">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-3">
+                        <a href="/symbol/{{ trade.symbol }}" onclick="event.stopPropagation()" class="text-txt-primary font-semibold text-lg hover:text-accent transition-colors">{{ trade.symbol }}</a>
+                        <span class="px-2.5 py-0.5 rounded-full text-xs font-medium
+                            {% if trade.status == 'partial_exit' %}
+                                bg-warning-muted text-warning
+                            {% else %}
+                                bg-positive-muted text-positive
+                            {% endif %}">
+                            {{ STATUS_TR.get(trade.status, trade.status|upper) }}
+                        </span>
+                    </div>
+                    <span class="text-xs text-txt-ghost">
+                        {{ trade.entry_date[:10] if trade.entry_date else '-' }}
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-sm">
+                    <div>
+                        <span class="text-txt-muted text-xs">Giris</span>
+                        <p class="text-txt-primary font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.entry_price or 0) }} TL</p>
+                    </div>
+                    <div>
+                        <span class="text-txt-muted text-xs">Maliyet</span>
+                        <p class="text-txt-primary font-mono tabular-nums font-medium">{{ "{:,.0f}".format(trade.total_cost or 0) }} TL</p>
+                    </div>
+                    <div>
+                        <span class="text-txt-muted text-xs">Lot</span>
+                        <p class="text-txt-primary font-mono tabular-nums font-medium">{{ trade.remaining_shares|int }} <span class="text-txt-ghost">/ {{ trade.shares|int }}</span></p>
+                    </div>
+                    <div>
+                        <span class="text-txt-muted text-xs">SL / TP1</span>
+                        <p><span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }}</span>
+                        <span class="text-txt-ghost">/</span>
+                        <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }}</span></p>
+                    </div>
+                    <div>
+                        <span class="text-txt-muted text-xs">Realize K/Z</span>
+                        {% if trade.exits %}
+                        <p class="font-mono tabular-nums font-medium {% if trade.realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">
+                            {{ "{:+,.0f}".format(trade.realized_pnl) }} TL
+                        </p>
+                        {% else %}
+                        <p class="text-txt-ghost">—</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if trade.exits %}
+                <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                    {% for ex in trade.exits %}
+                    <span class="px-1.5 py-0.5 rounded-sm bg-surface-sunken text-txt-muted">
+                        {{ ex.shares|int }} lot @ {{ "%.2f"|format(ex.price) }}
+                        <span class="{% if (ex.pnl or 0) >= 0 %}text-positive{% else %}text-negative{% endif %}">
+                            ({{ "{:+,.0f}".format(ex.pnl or 0) }})
+                        </span>
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="py-12 text-center text-txt-muted">
+            <p class="text-lg mb-1">Acik pozisyon yok</p>
+            <p class="text-sm text-txt-ghost">Yeni sinyaller icin tarama sonuclarini kontrol edin.</p>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Son Sinyaller (sag, 1/3) -->
     <div>
-        <div class="bg-surface-light rounded-xl border border-gray-700/30 overflow-hidden">
-            <div class="px-5 py-3 border-b border-gray-700/30">
-                <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">Son Sinyaller</h2>
+        <div class="bg-surface-raised rounded-lg border border-border-subtle overflow-hidden">
+            <div class="px-5 py-3 border-b border-border-subtle">
+                <h2 class="text-base font-semibold text-txt-primary">Son Sinyaller</h2>
             </div>
 
             {% if recent_signals %}
-            <div class="divide-y divide-gray-700/30">
+            <div class="divide-y divide-border-subtle">
                 {% for sig in recent_signals %}
-                <div class="px-5 py-3 hover:bg-white/[0.02] transition-colors">
+                <div class="px-5 py-3 hover:bg-accent/5 transition-colors {% if sig.strength == 'strong' %}border-l-2 border-l-positive{% endif %}">
                     <div class="flex items-center justify-between mb-1">
-                        <span class="text-white font-medium">{{ sig.symbol }}</span>
-                        <span class="text-xs px-2 py-0.5 rounded
+                        <a href="/symbol/{{ sig.symbol }}" class="text-txt-primary font-medium hover:text-accent transition-colors">{{ sig.symbol }}</a>
+                        <span class="text-xs px-2 py-0.5 rounded font-semibold
                             {% if sig.strength == 'strong' %}
-                                bg-accent-green/20 text-accent-green
+                                bg-positive-muted text-positive
                             {% else %}
-                                bg-accent-yellow/20 text-accent-yellow
+                                bg-warning-muted text-warning
                             {% endif %}">
-                            {{ sig.strength }}
+                            {{ STATUS_TR.get(sig.strength, sig.strength) }}
                         </span>
                     </div>
-                    <div class="flex items-center justify-between text-xs text-gray-500">
-                        <span>{{ "%.2f"|format(sig.price_at_signal) }} TL</span>
+                    <div class="flex items-center justify-between text-xs text-txt-muted">
+                        <span class="font-mono tabular-nums">{{ "%.2f"|format(sig.price_at_signal) }} TL</span>
                         <span>Skor: {{ sig.score or '-' }}</span>
                     </div>
                     {% if sig.indicator_values is mapping %}
-                    <p class="text-xs text-gray-600 mt-1 truncate">
+                    <p class="text-xs text-txt-ghost mt-1 truncate">
                         {{ sig.indicator_values.get('reasons', '') }}
                     </p>
                     {% endif %}
-                    <p class="text-xs text-gray-600 mt-0.5">
+                    <p class="text-xs text-txt-ghost mt-0.5">
                         {{ sig.created_at[:16] if sig.created_at else '' }}
                     </p>
                 </div>
                 {% endfor %}
             </div>
             {% else %}
-            <div class="px-5 py-8 text-center text-gray-500">
+            <div class="px-5 py-8 text-center text-txt-muted">
                 <p>Henuz sinyal yok</p>
             </div>
             {% endif %}
         </div>
-
     </div>
 </div>
 
@@ -198,10 +196,10 @@
 <div id="manualBuyModal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black/60" onclick="document.getElementById('manualBuyModal').classList.add('hidden')"></div>
     <div class="absolute inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-md overflow-y-auto max-h-[calc(100vh-2rem)]">
-        <div class="bg-surface-light rounded-xl border border-gray-700/30 p-6">
+        <div class="bg-surface-raised rounded-lg border border-border shadow-2xl shadow-black/50 p-6">
             <div class="flex items-center justify-between mb-5">
-                <h3 class="text-lg font-semibold text-white">Manuel Alis</h3>
-                <button onclick="document.getElementById('manualBuyModal').classList.add('hidden')" class="text-gray-500 hover:text-white text-xl">&times;</button>
+                <h3 class="text-lg font-semibold text-txt-primary">Manuel Alis</h3>
+                <button onclick="document.getElementById('manualBuyModal').classList.add('hidden')" class="text-txt-muted hover:text-txt-primary text-xl">&times;</button>
             </div>
 
             <form action="/signals/buy" method="post">
@@ -210,37 +208,37 @@
 
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-xs text-gray-400 mb-1">Sembol</label>
+                        <label class="block text-xs text-txt-muted mb-1">Sembol</label>
                         <input type="text" name="symbol" required placeholder="THYAO"
-                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none uppercase">
+                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none uppercase">
                     </div>
                     <div>
-                        <label class="block text-xs text-gray-400 mb-1">Giris Fiyati (TL)</label>
+                        <label class="block text-xs text-txt-muted mb-1">Giris Fiyati (TL)</label>
                         <input type="number" name="entry_price" id="manualPrice" step="0.01" required
                             oninput="updateManualCost()"
-                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none">
+                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs text-gray-400 mb-1">Lot</label>
+                        <label class="block text-xs text-txt-muted mb-1">Lot</label>
                         <input type="number" name="shares" id="manualShares" step="1" min="1" required
                             oninput="updateManualCost()"
-                            class="w-full px-3 py-2 rounded-lg bg-surface text-white border border-gray-700 focus:border-blue-500 focus:outline-none">
+                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none">
                     </div>
-                    <div class="bg-surface rounded-lg p-3 text-sm">
-                        <div class="flex justify-between text-gray-400">
+                    <div class="bg-surface-sunken rounded p-3 text-sm">
+                        <div class="flex justify-between text-txt-muted">
                             <span>Toplam Maliyet</span>
-                            <span id="manualCost" class="text-white font-medium">0 TL</span>
+                            <span id="manualCost" class="text-txt-primary font-mono tabular-nums font-medium">0 TL</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="flex gap-3 mt-6">
                     <button type="button" onclick="document.getElementById('manualBuyModal').classList.add('hidden')"
-                        class="flex-1 px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium transition-colors">
+                        class="flex-1 px-4 py-2 rounded-lg bg-surface-sunken hover:bg-border text-txt-secondary text-sm font-medium transition-colors">
                         Iptal
                     </button>
                     <button type="submit"
-                        class="flex-1 px-4 py-2 rounded-lg bg-accent-green hover:bg-accent-green/80 text-white text-sm font-bold transition-colors">
+                        class="flex-1 px-4 py-2 rounded-lg bg-positive hover:bg-positive/80 text-txt-primary text-sm font-bold transition-colors">
                         Pozisyon Ac
                     </button>
                 </div>

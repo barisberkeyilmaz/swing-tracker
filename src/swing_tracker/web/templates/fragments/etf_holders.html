@@ -1,0 +1,29 @@
+{% if etfs %}
+<div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-txt-muted uppercase tracking-wide bg-surface-sunken">
+                <th class="px-5 py-3">ETF</th>
+                <th class="px-3 py-3">Ihracici</th>
+                <th class="px-3 py-3 text-right">Agirlik</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-border-subtle">
+            {% for etf in etfs %}
+            <tr class="hover:bg-accent/5">
+                <td class="px-5 py-2.5">
+                    <p class="text-txt-primary text-xs font-medium">{{ etf.symbol }}</p>
+                    <p class="text-txt-ghost text-xs truncate max-w-[200px]" title="{{ etf.name }}">{{ etf.name }}</p>
+                </td>
+                <td class="px-3 py-2.5 text-txt-muted text-xs">{{ etf.issuer }}</td>
+                <td class="px-3 py-2.5 text-right text-txt-primary text-xs font-mono tabular-nums">
+                    {% if etf.weight %}%{{ "%.4f"|format(etf.weight) }}{% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="px-5 py-6 text-center text-txt-muted text-sm">ETF verisi bulunamadi</div>
+{% endif %}

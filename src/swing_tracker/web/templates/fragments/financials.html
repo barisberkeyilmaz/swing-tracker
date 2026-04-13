@@ -1,0 +1,80 @@
+{% if rows %}
+<!-- Desktop: tam tablo -->
+<div class="hidden md:block overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-txt-muted uppercase tracking-wide bg-surface-sunken">
+                <th class="px-5 py-3 sticky left-0 bg-surface-sunken z-10">Kalem</th>
+                {% for col in columns %}
+                <th class="px-3 py-3 text-right whitespace-nowrap">{{ col }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-border-subtle">
+            {% for row in rows %}
+            <tr class="{% if row.highlight %}bg-accent/5{% endif %} hover:bg-accent/5">
+                <td class="px-5 py-2 text-xs sticky left-0 z-10 whitespace-nowrap
+                    {% if row.highlight %}bg-accent/5 text-txt-primary font-medium{% else %}bg-surface-raised text-txt-secondary{% endif %}">
+                    <span class="inline-flex items-center gap-1.5 max-w-[200px]">
+                        <span class="truncate" title="{{ row.label }}">{{ row.label }}</span>
+                        {% if row.tooltip %}
+                        <span class="relative group flex-shrink-0 cursor-help">
+                            <span class="inline-flex items-center justify-center w-4 h-4 rounded-full border border-txt-ghost group-hover:border-txt-muted text-txt-ghost group-hover:text-txt-muted text-[10px] font-bold leading-none">i</span>
+                            <span class="absolute bottom-full left-0 mb-1.5 hidden group-hover:block z-20 w-56 px-3 py-2 rounded-lg bg-surface-sunken border border-border text-xs text-txt-secondary font-normal shadow-lg whitespace-normal">
+                                {{ row.tooltip }}
+                            </span>
+                        </span>
+                        {% endif %}
+                    </span>
+                </td>
+                {% for val in row.cells %}
+                <td class="px-3 py-2 text-right text-xs whitespace-nowrap font-mono tabular-nums
+                    {% if row.highlight %}text-txt-primary font-medium{% else %}text-txt-primary{% endif %}">{{ val }}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Mobil: sadece onemli kalemler, kart gorunumu -->
+<div class="md:hidden">
+    {% set has_highlight = rows|selectattr('highlight')|list %}
+    {% if has_highlight %}
+    <div class="divide-y divide-border-subtle">
+        {% for row in rows %}
+        {% if row.highlight %}
+        <div class="px-4 py-3">
+            <div class="flex items-center gap-1.5 mb-2">
+                <span class="text-xs text-txt-muted font-medium">{{ row.label }}</span>
+                {% if row.tooltip %}
+                <span class="relative group flex-shrink-0 cursor-help" onclick="this.classList.toggle('show-tip')">
+                    <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-txt-ghost text-txt-ghost text-[9px] font-bold leading-none">i</span>
+                    <span class="absolute bottom-full left-0 mb-1 hidden group-[.show-tip]:block z-20 w-52 px-2.5 py-1.5 rounded-lg bg-surface-sunken border border-border text-xs text-txt-secondary font-normal shadow-lg whitespace-normal">
+                        {{ row.tooltip }}
+                    </span>
+                </span>
+                {% endif %}
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                {% for val in row.cells_short[:3] %}
+                <div class="text-center">
+                    <p class="text-[10px] text-txt-ghost mb-0.5">{{ columns[loop.index0] }}</p>
+                    <p class="text-sm text-txt-primary font-mono tabular-nums font-medium">{{ val }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    <div class="px-4 py-2 border-t border-border-subtle text-center">
+        <p class="text-xs text-txt-ghost">Tam tablo icin yatay gorunume gecin</p>
+    </div>
+    {% else %}
+    <div class="px-4 py-6 text-center text-txt-muted text-sm">Onemli kalem bulunamadi</div>
+    {% endif %}
+</div>
+{% else %}
+<div class="px-5 py-8 text-center text-txt-muted text-sm">Finansal tablo verisi bulunamadi</div>
+{% endif %}

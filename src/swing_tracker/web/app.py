@@ -14,7 +14,7 @@ from swing_tracker.config import load_config
 from swing_tracker.db.connection import get_connection
 from swing_tracker.db.repository import Repository
 from swing_tracker.web.dependencies import init_state
-from swing_tracker.web.routers import dashboard, portfolio, signals, trades
+from swing_tracker.web.routers import dashboard, portfolio, signals, symbol, trades
 
 logger = logging.getLogger("swing_tracker.web")
 
@@ -46,6 +46,7 @@ app.include_router(dashboard.router)
 app.include_router(portfolio.router)
 app.include_router(signals.router)
 app.include_router(trades.router)
+app.include_router(symbol.router)
 
 
 def main():
