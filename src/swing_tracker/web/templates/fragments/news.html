@@ -1,32 +1,32 @@
 {% if news_items %}
-<div class="divide-y divide-gray-700/20">
+<div class="divide-y divide-border-subtle">
     {% for item in news_items %}
     <a href="{{ item.url }}" target="_blank" rel="noopener"
-        class="block px-5 py-3 hover:bg-white/[0.02] transition-colors">
-        <p class="text-sm text-gray-300 mb-1">{{ item.title }}</p>
-        <p class="text-xs text-gray-500">{{ item.date }}</p>
+        class="block px-5 py-3 hover:bg-accent/5 transition-colors">
+        <p class="text-sm text-txt-secondary mb-1">{{ item.title }}</p>
+        <p class="text-xs text-txt-ghost">{{ item.date }}</p>
     </a>
     {% endfor %}
 </div>
 {% else %}
-<div class="px-5 py-6 text-center text-gray-500 text-sm">Haber bulunamadi</div>
+<div class="px-5 py-6 text-center text-txt-muted text-sm">Haber bulunamadi</div>
 {% endif %}
 
 {% if calendar_items %}
-<div class="border-t border-gray-700/30">
-    <div class="px-5 py-2 bg-surface/30">
-        <h4 class="text-xs text-gray-500 uppercase tracking-wider">Beklenen Aciklamalar</h4>
+<div class="border-t border-border-subtle">
+    <div class="px-5 py-2 bg-surface-sunken">
+        <h4 class="text-xs text-txt-muted uppercase tracking-wide">Beklenen Aciklamalar</h4>
     </div>
-    <div class="divide-y divide-gray-700/20">
+    <div class="divide-y divide-border-subtle">
         {% for item in calendar_items %}
         <div class="px-5 py-2.5 flex flex-wrap items-center justify-between gap-2">
             <div>
-                <span class="text-xs text-gray-300">{{ item.subject }}</span>
+                <span class="text-xs text-txt-secondary">{{ item.subject }}</span>
                 {% if item.period %}
-                <span class="text-xs text-gray-500 ml-1">({{ item.period }})</span>
+                <span class="text-xs text-txt-ghost ml-1">({{ item.period }})</span>
                 {% endif %}
             </div>
-            <span class="text-xs text-gray-500">{{ item.start }} - {{ item.end }}</span>
+            <span class="text-xs text-txt-ghost">{{ item.start }} - {{ item.end }}</span>
         </div>
         {% endfor %}
     </div>

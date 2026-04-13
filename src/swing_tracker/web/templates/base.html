@@ -4,17 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Swing Tracker{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script>
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
-                        surface: { DEFAULT: '#1a1a2e', light: '#16213e', card: '#0f3460' },
-                        accent: { DEFAULT: '#e94560', green: '#00b894', yellow: '#fdcb6e' },
-                    }
+                        surface: { DEFAULT: '#121212', raised: '#1a1a1a', sunken: '#0a0a0a' },
+                        border: { DEFAULT: '#2e2e2e', subtle: '#1f1f1f' },
+                        accent: { DEFAULT: '#e5a84b', hover: '#dba040', muted: 'rgba(229,168,75,0.12)' },
+                        positive: { DEFAULT: '#66bb6a', muted: 'rgba(102,187,106,0.12)' },
+                        negative: { DEFAULT: '#ef5350', muted: 'rgba(239,83,80,0.12)' },
+                        warning: { DEFAULT: '#ffa726', muted: 'rgba(255,167,38,0.12)' },
+                        txt: { primary: '#ededec', secondary: '#a0a0a0', muted: '#6e6e6e', ghost: '#4a4a4a' },
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'SF Mono', 'Fira Code', 'monospace'],
+                    },
                 }
             }
         }
@@ -23,27 +34,33 @@
         body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
         .htmx-indicator { display: none; }
         .htmx-request .htmx-indicator { display: inline-block; }
+        .tabular-nums { font-variant-numeric: tabular-nums; }
     </style>
 </head>
-<body class="dark h-full bg-surface text-gray-100">
+<body class="h-full bg-surface text-txt-primary">
+    {% set is_weekday = now.weekday() < 5 if now else false %}
+    {% set h = now.hour if now else 0 %}
+    {% set m = now.minute if now else 0 %}
+    {% set market_open = is_weekday and ((h >= 10 and (h < 12 or (h == 12 and m < 30))) or (h >= 14 and h < 18)) if now else false %}
+
     <!-- Navbar -->
-    <nav class="bg-surface-light border-b border-gray-700/50 px-4 sm:px-6 py-3">
+    <nav class="bg-surface-raised border-b border-border px-4 sm:px-6 py-3">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center gap-6">
-                <a href="/" class="text-xl font-bold text-white tracking-tight">
+                <a href="/" class="text-xl font-bold text-txt-primary tracking-tight">
                     Swing<span class="text-accent">Tracker</span>
                 </a>
                 <div class="hidden md:flex items-center gap-1">
                     <a href="/" class="px-3 py-1.5 rounded-lg text-sm font-medium
-                        {% block nav_dashboard %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %}">
-                        Dashboard
+                        {% block nav_dashboard %}text-txt-muted hover:text-txt-primary hover:bg-accent/5{% endblock %}">
+                        Genel
                     </a>
                     <a href="/portfolio" class="px-3 py-1.5 rounded-lg text-sm font-medium
-                        {% block nav_portfolio %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %}">
+                        {% block nav_portfolio %}text-txt-muted hover:text-txt-primary hover:bg-accent/5{% endblock %}">
                         Portfoy
                     </a>
                     <a href="/signals" class="px-3 py-1.5 rounded-lg text-sm font-medium
-                        {% block nav_signals %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %}">
+                        {% block nav_signals %}text-txt-muted hover:text-txt-primary hover:bg-accent/5{% endblock %}">
                         Sinyaller
                     </a>
                 </div>
@@ -51,44 +68,74 @@
             <div class="flex items-center gap-3">
                 <form action="/symbol/SEARCH" method="get" onsubmit="event.preventDefault(); const s = this.querySelector('input').value.trim().toUpperCase(); if(s) window.location.href='/symbol/' + s;">
                     <input type="text" placeholder="Sembol ara..." maxlength="10"
-                        class="w-24 sm:w-32 px-2.5 py-1 rounded-lg bg-surface text-white text-sm border border-gray-700 focus:border-blue-500 focus:outline-none placeholder-gray-600">
+                        class="w-24 sm:w-32 px-2.5 py-1 rounded-lg bg-surface-sunken text-txt-primary text-sm border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none placeholder-txt-ghost">
                 </form>
-                <span class="hidden sm:block text-sm text-gray-500">
+                <span class="flex items-center gap-1.5 text-xs">
+                    <span class="w-1.5 h-1.5 rounded-full {% if market_open %}bg-positive animate-pulse{% else %}bg-txt-ghost{% endif %}"></span>
+                    <span class="{% if market_open %}text-positive{% else %}text-txt-ghost{% endif %}">
+                        {% if market_open %}ACIK{% else %}KAPALI{% endif %}
+                    </span>
+                </span>
+                <span class="hidden sm:block text-xs text-txt-ghost">
                     {{ now.strftime('%d.%m.%Y %H:%M') if now else '' }}
                 </span>
-                <button id="menuToggle" class="md:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                    </svg>
-                </button>
+                <span class="sm:hidden text-xs text-txt-ghost">
+                    {{ now.strftime('%H:%M') if now else '' }}
+                </span>
             </div>
-        </div>
-        <!-- Mobil Menu -->
-        <div id="mobileMenu" class="hidden md:hidden border-t border-gray-700/50 px-4 py-2">
-            <a href="/" class="block px-3 py-3 rounded-lg text-sm font-medium {% block mobile_nav_dashboard %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %} transition-colors">
-                Dashboard
-            </a>
-            <a href="/portfolio" class="block px-3 py-3 rounded-lg text-sm font-medium {% block mobile_nav_portfolio %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %} transition-colors">
-                Portfoy
-            </a>
-            <a href="/signals" class="block px-3 py-3 rounded-lg text-sm font-medium {% block mobile_nav_signals %}text-gray-400 hover:text-white hover:bg-white/5{% endblock %} transition-colors">
-                Sinyaller
-            </a>
         </div>
     </nav>
 
     <!-- Main content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 pb-20 md:pb-6">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Bottom Nav (mobil/tablet) -->
+    <nav class="md:hidden fixed bottom-0 inset-x-0 bg-surface-raised border-t border-border z-40">
+        <div class="flex items-stretch">
+            <a href="/" class="flex-1 flex flex-col items-center gap-0.5 py-2.5
+                {% block bottom_nav_dashboard %}text-txt-muted{% endblock %}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+                </svg>
+                <span class="text-[10px] font-medium">Genel</span>
+            </a>
+            <a href="/portfolio" class="flex-1 flex flex-col items-center gap-0.5 py-2.5
+                {% block bottom_nav_portfolio %}text-txt-muted{% endblock %}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                </svg>
+                <span class="text-[10px] font-medium">Portfoy</span>
+            </a>
+            <a href="/signals" class="flex-1 flex flex-col items-center gap-0.5 py-2.5
+                {% block bottom_nav_signals %}text-txt-muted{% endblock %}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                </svg>
+                <span class="text-[10px] font-medium">Sinyaller</span>
+            </a>
+        </div>
+    </nav>
+
 <script>
-const menuToggle = document.getElementById('menuToggle');
-const mobileMenu = document.getElementById('mobileMenu');
-if (menuToggle && mobileMenu) {
-    menuToggle.addEventListener('click', () => {
-        mobileMenu.classList.toggle('hidden');
-    });
-}
+/* Double-submit protection */
+document.addEventListener('submit', function(e) {
+    const form = e.target;
+    if (form.dataset.submitted) { e.preventDefault(); return; }
+    form.dataset.submitted = 'true';
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed'); }
+    setTimeout(() => {
+        delete form.dataset.submitted;
+        if (btn) { btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+    }, 5000);
+});
 </script>
+
+{% if market_open %}
+<script>setTimeout(() => location.reload(), 60000);</script>
+{% endif %}
+
 </body>
 </html>
