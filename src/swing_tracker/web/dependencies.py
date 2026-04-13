@@ -8,9 +8,13 @@ from fastapi.templating import Jinja2Templates
 
 from swing_tracker.config import Config
 from swing_tracker.db.repository import Repository
+from swing_tracker.web.auth import auth_enabled
 
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+
+# Auth flag — used in base.html for logout button visibility
+templates.env.globals["auth_enabled"] = auth_enabled()
 
 # Turkish status label mapping — used in all templates via {{ STATUS_TR.get(key, key) }}
 STATUS_TR = {
