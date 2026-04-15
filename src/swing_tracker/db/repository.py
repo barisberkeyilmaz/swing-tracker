@@ -297,14 +297,36 @@ class Repository:
         self._conn.commit()
         return cur.lastrowid
 
-    def get_cash_balance(self) -> float:
-        row = self._conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) as balance FROM cash_transactions"
-        ).fetchone()
+    def get_cash_balance(self, transaction_types: tuple[str, ...] | None = None) -> float:
+        if transaction_types:
+            placeholders = ",".join("?" for _ in transaction_types)
+            row = self._conn.execute(
+                f"""SELECT COALESCE(SUM(amount), 0) as balance
+                    FROM cash_transactions
+                    WHERE transaction_type IN ({placeholders})""",
+                transaction_types,
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(amount), 0) as balance FROM cash_transactions"
+            ).fetchone()
         return row["balance"]
 
-    def get_cash_transactions(self, limit: int = 50) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT * FROM cash_transactions ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+    def get_cash_transactions(
+        self,
+        limit: int = 50,
+        transaction_types: tuple[str, ...] | None = None,
+    ) -> list[dict]:
+        if transaction_types:
+            placeholders = ",".join("?" for _ in transaction_types)
+            rows = self._conn.execute(
+                f"""SELECT * FROM cash_transactions
+                    WHERE transaction_type IN ({placeholders})
+                    ORDER BY created_at DESC LIMIT ?""",
+                (*transaction_types, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM cash_transactions ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [dict(r) for r in rows]

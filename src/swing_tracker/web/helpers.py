@@ -34,9 +34,10 @@ class CashFlow:
 def build_cash_flows(repo: Repository) -> list[CashFlow]:
     """Build chronological cash flow log from all sources."""
     entries: list[tuple[str, str, str, float, str]] = []
+    manual_cash_types = ("deposit", "withdrawal")
 
     # 1. Manuel nakit islemleri
-    for tx in repo.get_cash_transactions(limit=200):
+    for tx in repo.get_cash_transactions(limit=200, transaction_types=manual_cash_types):
         entries.append((
             tx.get("created_at", "")[:16],
             tx["transaction_type"],
@@ -96,7 +97,7 @@ def build_cash_flows(repo: Repository) -> list[CashFlow]:
 def calc_capital_summary(repo: Repository) -> CapitalSummary:
     """Calculate capital summary from trade + cash data — no borsapy calls."""
     # Manuel nakit yatirimlari (web'den eklenen)
-    deposits = repo.get_cash_balance()
+    deposits = repo.get_cash_balance(("deposit", "withdrawal"))
 
     all_trades = repo.get_open_trades() + repo.get_trades_by_status("closed")
 
