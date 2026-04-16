@@ -352,10 +352,13 @@ async def analyst_fragment(request: Request, symbol: str):
             analyst["sell"], analyst["strong_sell"],
         ])
 
+    # Anlamli veri yoksa None dondur (bos dict template'de bos div yaratir)
+    has_data = any(v for v in analyst.values() if v is not None and v != 0)
+
     return templates.TemplateResponse(
         request,
         "fragments/analyst.html",
-        context={"analyst": analyst or None},
+        context={"analyst": analyst if has_data else None},
     )
 
 
@@ -442,7 +445,10 @@ async def financials_fragment(
             title = "Gelir Tablosu"
 
         if df is None or df.empty:
-            return HTMLResponse('<p class="text-gray-500 text-sm py-4">Veri bulunamadi</p>')
+            return HTMLResponse(
+                '<div class="px-5 py-8 text-center text-sm text-txt-muted">'
+                'Bu hisse icin finansal tablo verisi bulunamadi.</div>'
+            )
 
         # Son 5 donem
         cols = list(df.columns[:5])
@@ -469,7 +475,10 @@ async def financials_fragment(
 
     except Exception:
         logger.warning(f"{symbol}: Finansal tablo alinamadi ({tab})")
-        return HTMLResponse('<p class="text-gray-500 text-sm py-4">Veri yuklenemedi</p>')
+        return HTMLResponse(
+            '<div class="px-5 py-8 text-center text-sm text-txt-muted">'
+            'Finansal tablo yuklenemedi. Daha sonra tekrar deneyin.</div>'
+        )
 
     return templates.TemplateResponse(
         request,

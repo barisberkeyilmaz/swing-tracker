@@ -71,12 +71,12 @@
     {% endif %}
 </div>
 {% else %}
-<p class="text-txt-muted text-sm">Teknik veri alinamadi</p>
+<div class="py-4 text-center text-sm text-txt-muted">Bu hisse icin teknik veri alinamadi.</div>
 {% endif %}
 
-{% if chart_data and chart_data.dates %}
-<!-- OOB swap: chart-section placeholder'ini doldur -->
+<!-- OOB swap: chart-section placeholder'ini her durumda doldur -->
 <div id="chart-section" hx-swap-oob="innerHTML">
+{% if chart_data and chart_data.dates %}
     <div class="bg-surface-raised rounded-lg border border-border-subtle p-5">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h3 class="text-sm font-medium text-txt-muted uppercase tracking-wide">Fiyat Grafigi</h3>
@@ -95,13 +95,14 @@
             <canvas id="priceChart"></canvas>
         </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script>
     const chartData = {{ chart_data|tojson }};
     let priceChart;
 
     function createChart(data) {
-        const ctx = document.getElementById('priceChart').getContext('2d');
+        const canvas = document.getElementById('priceChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
         if (priceChart) priceChart.destroy();
 
         priceChart = new Chart(ctx, {
@@ -161,5 +162,10 @@
 
     createChart(chartData);
     </script>
-</div>
+{% else %}
+    <div class="bg-surface-raised rounded-lg border border-border-subtle p-5">
+        <h3 class="text-sm font-medium text-txt-muted uppercase tracking-wide mb-4">Fiyat Grafigi</h3>
+        <div class="py-8 text-center text-sm text-txt-muted">Bu hisse icin grafik verisi bulunamadi.</div>
+    </div>
 {% endif %}
+</div>
