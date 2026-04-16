@@ -1,0 +1,17 @@
+{% if holders %}
+<div class="space-y-2">
+    {% for h in holders %}
+    <div>
+        <div class="flex justify-between text-sm mb-1">
+            <span class="text-txt-secondary truncate mr-2">{{ h.name }}</span>
+            <span class="text-txt-primary font-mono tabular-nums font-medium whitespace-nowrap">%{{ "%.2f"|format(h.pct) }}</span>
+        </div>
+        <div class="w-full h-1.5 bg-surface-sunken rounded-full overflow-hidden">
+            <div class="h-full bg-accent/60 rounded-full" style="width: {{ h.pct }}%"></div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-sm text-txt-ghost">Ortaklik verisi bulunamadi.</p>
+{% endif %}

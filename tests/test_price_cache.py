@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from swing_tracker.web import price_cache as pc_module
-from swing_tracker.web.indicator_cache import IndicatorCache
+from swing_tracker.web.indicator_cache import HistoryCache, IndicatorCache
 from swing_tracker.web.price_cache import PriceCache
 
 
@@ -146,3 +146,27 @@ def test_indicator_cache_ttl_expires(monkeypatch):
     monkeypatch.setattr(ic_module.time, "monotonic", lambda: original + 61)
 
     assert cache.get("THYAO") is None
+
+
+# ─── HistoryCache ───
+
+def test_history_cache_stores_dataframe():
+    cache = HistoryCache(max_size=10, ttl=60)
+    df = pd.DataFrame({"Close": [100.0, 101.0], "Volume": [1000, 2000]})
+
+    cache.set("THYAO", df)
+    result = cache.get("THYAO")
+
+    assert result is not None
+    assert len(result) == 2
+    assert float(result.iloc[-1]["Close"]) == 101.0
+
+
+def test_history_cache_evicts_oldest():
+    cache = HistoryCache(max_size=2, ttl=60)
+    for sym in ("AAA", "BBB", "CCC"):
+        cache.set(sym, pd.DataFrame({"Close": [1.0]}))
+
+    assert cache.get("AAA") is None
+    assert cache.get("BBB") is not None
+    assert cache.get("CCC") is not None

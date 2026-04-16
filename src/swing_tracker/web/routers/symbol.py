@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from swing_tracker.core.signals import _add_all_indicators, _get_indicators
 from swing_tracker.web.dependencies import templates, get_repo, get_config
-from swing_tracker.web.indicator_cache import indicator_cache
+from swing_tracker.web.indicator_cache import history_cache, indicator_cache, info_cache
 
 logger = logging.getLogger(__name__)
 
@@ -190,16 +190,13 @@ async def symbol_detail(request: Request, symbol: str):
     config = get_config()
     now = datetime.now(config.timezone)
 
-    ticker = bp.Ticker(symbol)
+    # Shell page: sadece ticker.info (cache'li) + DB — agir fetch'ler HTMX fragment
+    info = info_cache.get(symbol)
+    if info is None:
+        info = await asyncio.to_thread(_fetch_info, bp.Ticker(symbol), symbol)
+        if info is not None:
+            info_cache.set(symbol, info)
 
-    # Hizli fetch'ler paralelde; yavas analyst property'leri ayri HTMX fragment
-    info, df, mh = await asyncio.gather(
-        asyncio.to_thread(_fetch_info, ticker, symbol),
-        asyncio.to_thread(_fetch_history, ticker, symbol),
-        asyncio.to_thread(_fetch_major_holders, ticker, symbol),
-    )
-
-    # Info yoksa tum sayfa error path'inde render
     if info is None:
         return templates.TemplateResponse(
             request,
@@ -207,8 +204,7 @@ async def symbol_detail(request: Request, symbol: str):
             context={
                 "symbol": symbol,
                 "error": True,
-                "market": {}, "fundamentals": {}, "technical": {},
-                "chart_data": {}, "analyst": {}, "holders": [],
+                "market": {}, "fundamentals": {},
                 "user_positions": [], "last_signal": None, "now": now,
             },
             status_code=200,
@@ -216,7 +212,6 @@ async def symbol_detail(request: Request, symbol: str):
 
     price = _safe_get(info, "last") or _safe_get(info, "close", 0)
 
-    # Fiyat & piyasa verileri
     market = {
         "price": price,
         "change": _safe_get(info, "change", 0),
@@ -244,28 +239,6 @@ async def symbol_detail(request: Request, symbol: str):
         "industry": _safe_get(info, "industry", "-"),
     }
 
-    # Teknik gorunum — 5 dk TTL cache ile agir indikator hesabini atla
-    technical = indicator_cache.get(symbol)
-    if technical is None:
-        technical = _technical_summary(df) if df is not None else {}
-        if technical:
-            indicator_cache.set(symbol, technical)
-
-    # Chart data — vectorized (iterrows yerine)
-    chart_data = {}
-    if df is not None and not df.empty:
-        chart_data = {
-            "dates": df.index.strftime("%Y-%m-%d").tolist(),
-            "prices": df["Close"].round(2).astype(float).tolist(),
-            "volumes": df["Volume"].astype(int).tolist(),
-        }
-
-    holders = []
-    if mh is not None and not mh.empty:
-        names = mh.index.tolist()
-        pcts = mh["Percentage"].round(2).tolist()
-        holders = [{"name": n, "pct": p} for n, p in zip(names, pcts)]
-
     open_trades = repo.get_open_trades()
     user_positions = [t for t in open_trades if t["symbol"] == symbol]
 
@@ -279,13 +252,68 @@ async def symbol_detail(request: Request, symbol: str):
             "symbol": symbol,
             "market": market,
             "fundamentals": fundamentals,
-            "technical": technical,
-            "chart_data": chart_data,
-            "holders": holders,
             "user_positions": user_positions,
             "last_signal": last_signal,
             "now": now,
         },
+    )
+
+
+@router.get("/{symbol}/technical-chart", response_class=HTMLResponse)
+async def technical_chart_fragment(request: Request, symbol: str):
+    """Teknik gorunum karti + fiyat grafigi HTMX fragment.
+    history_cache ile cache'li; OOB swap ile chart bölümünü de doldurur."""
+    symbol = symbol.upper()
+
+    df = history_cache.get(symbol)
+    if df is None:
+        df = await asyncio.to_thread(_fetch_history, bp.Ticker(symbol), symbol)
+        if df is not None:
+            history_cache.set(symbol, df)
+
+    technical = indicator_cache.get(symbol)
+    if technical is None:
+        technical = _technical_summary(df) if df is not None else {}
+        if technical:
+            indicator_cache.set(symbol, technical)
+
+    chart_data = {}
+    if df is not None and not df.empty:
+        chart_data = {
+            "dates": df.index.strftime("%Y-%m-%d").tolist(),
+            "prices": df["Close"].round(2).astype(float).tolist(),
+            "volumes": df["Volume"].astype(int).tolist(),
+        }
+
+    return templates.TemplateResponse(
+        request,
+        "fragments/technical_chart.html",
+        context={
+            "symbol": symbol,
+            "technical": technical,
+            "chart_data": chart_data,
+        },
+    )
+
+
+@router.get("/{symbol}/holders-section", response_class=HTMLResponse)
+async def holders_fragment(request: Request, symbol: str):
+    """Ortaklik yapisi HTMX fragment."""
+    symbol = symbol.upper()
+    mh = await asyncio.to_thread(
+        _fetch_major_holders, bp.Ticker(symbol), symbol
+    )
+
+    holders = []
+    if mh is not None and not mh.empty:
+        names = mh.index.tolist()
+        pcts = mh["Percentage"].round(2).tolist()
+        holders = [{"name": n, "pct": p} for n, p in zip(names, pcts)]
+
+    return templates.TemplateResponse(
+        request,
+        "fragments/holders.html",
+        context={"holders": holders},
     )
 
 
@@ -332,23 +360,31 @@ async def analyst_fragment(request: Request, symbol: str):
 
 
 @router.get("/{symbol}/chart-data")
-async def chart_data(symbol: str, period: str = Query("6mo")):
-    """Grafik verisi JSON endpoint — periyod degisiminde HTMX/fetch ile cagirilir."""
+async def chart_data_endpoint(symbol: str, period: str = Query("6mo")):
+    """Grafik verisi JSON endpoint — periyod degisiminde fetch ile cagirilir.
+    6mo default periyodu history_cache'ten gelir."""
     symbol = symbol.upper()
     valid_periods = {"1mo", "3mo", "6mo", "1y", "2y"}
     if period not in valid_periods:
         period = "6mo"
 
     try:
-        ticker = bp.Ticker(symbol)
-        df = ticker.history(period=period, interval="1d")
+        # Default periyot icin cache dene
+        df = history_cache.get(symbol) if period == "6mo" else None
+        if df is None:
+            df = await asyncio.to_thread(
+                lambda: bp.Ticker(symbol).history(period=period, interval="1d")
+            )
+            if period == "6mo" and df is not None:
+                history_cache.set(symbol, df)
+
         if df is None or df.empty:
             return JSONResponse({"dates": [], "prices": [], "volumes": []})
 
         return JSONResponse({
-            "dates": [d.strftime("%Y-%m-%d") for d in df.index],
-            "prices": [round(float(row["Close"]), 2) for _, row in df.iterrows()],
-            "volumes": [int(row["Volume"]) for _, row in df.iterrows()],
+            "dates": df.index.strftime("%Y-%m-%d").tolist(),
+            "prices": df["Close"].round(2).astype(float).tolist(),
+            "volumes": df["Volume"].astype(int).tolist(),
         })
     except Exception:
         return JSONResponse({"dates": [], "prices": [], "volumes": []})
