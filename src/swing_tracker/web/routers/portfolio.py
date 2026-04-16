@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
 
 from fastapi import APIRouter, Request
@@ -24,11 +23,6 @@ async def portfolio(request: Request, cash_page: int = 1):
     # Acik pozisyonlar
     open_trades = repo.get_open_trades()
     for trade in open_trades:
-        if trade.get("entry_reasons"):
-            try:
-                trade["entry_reasons"] = json.loads(trade["entry_reasons"])
-            except (json.JSONDecodeError, TypeError):
-                pass
         exits = repo.get_trade_exits(trade["id"])
         exited_shares = sum(e["shares"] for e in exits)
         trade["remaining_shares"] = trade.get("shares", 0) - exited_shares
@@ -37,12 +31,6 @@ async def portfolio(request: Request, cash_page: int = 1):
 
     # Kapanmis tradeler
     closed_trades = repo.get_trades_by_status("closed")
-    for trade in closed_trades:
-        if trade.get("entry_reasons"):
-            try:
-                trade["entry_reasons"] = json.loads(trade["entry_reasons"])
-            except (json.JSONDecodeError, TypeError):
-                pass
 
     # Sermaye ozeti + nakit akisi (sayfalanmis, TR saatinde)
     capital = calc_capital_summary(repo)

@@ -109,7 +109,7 @@
                     </td>
                     <td class="px-3 py-3">
                         {% if sig.signal_type == 'buy' and not sig.acted_on %}
-                        <button onclick="openBuyModal('{{ sig.symbol }}', {{ sig.price_at_signal }}, {{ sig.score or 0 }}, '{{ sig.indicator_values.get('reasons', '') if sig.indicator_values is mapping else '' }}')"
+                        <button onclick="openBuyModal('{{ sig.symbol }}', {{ sig.price_at_signal }}, {{ sig.score or 0 }})"
                             class="px-3 py-1 rounded bg-positive/80 hover:bg-positive text-txt-primary text-xs font-medium transition-colors">
                             Al
                         </button>
@@ -164,7 +164,7 @@
             <div class="flex items-center justify-between">
                 <span class="text-xs text-txt-ghost">{{ sig.created_at[:16] if sig.created_at else '-' }}</span>
                 {% if sig.signal_type == 'buy' and not sig.acted_on %}
-                <button onclick="openBuyModal('{{ sig.symbol }}', {{ sig.price_at_signal }}, {{ sig.score or 0 }}, '{{ sig.indicator_values.get('reasons', '') if sig.indicator_values is mapping else '' }}')"
+                <button onclick="openBuyModal('{{ sig.symbol }}', {{ sig.price_at_signal }}, {{ sig.score or 0 }})"
                     class="px-3 py-2 min-h-[44px] rounded bg-positive/80 hover:bg-positive text-txt-primary text-xs font-medium transition-colors">
                     Al
                 </button>
@@ -198,7 +198,6 @@
             <form action="/signals/buy" method="post" id="buyForm">
                 <input type="hidden" name="symbol" id="formSymbol">
                 <input type="hidden" name="signal_score" id="formScore">
-                <input type="hidden" name="reasons" id="formReasons">
 
                 <div class="space-y-4">
                     <div>
@@ -240,12 +239,11 @@
 </div>
 
 <script>
-function openBuyModal(symbol, price, score, reasons) {
+function openBuyModal(symbol, price, score) {
     document.getElementById('modalSymbol').textContent = symbol;
     document.getElementById('formSymbol').value = symbol;
     document.getElementById('formPrice').value = price.toFixed(2);
     document.getElementById('formScore').value = score;
-    document.getElementById('formReasons').value = reasons;
     document.getElementById('modalScore').textContent = score;
     document.getElementById('formShares').value = '';
     document.getElementById('totalCost').textContent = '0 TL';

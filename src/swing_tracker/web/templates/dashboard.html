@@ -8,7 +8,10 @@
 <!-- Hero: Portfoy Ozeti -->
 <div class="mb-6">
     <div class="mb-3">
-        <p class="text-xs font-medium text-txt-muted uppercase tracking-wide">Toplam Portfoy</p>
+        <div class="flex items-center gap-2 mb-0.5">
+            <p class="text-xs font-medium text-txt-muted uppercase tracking-wide">Toplam Portfoy</p>
+            <span id="market-regime-badge" class="text-xs text-txt-ghost font-medium">•</span>
+        </div>
         <p class="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-txt-primary">
             <span id="live-portfolio-value">
                 {% if open_trades %}
@@ -118,10 +121,18 @@
                         <p class="text-txt-primary font-mono tabular-nums font-medium">{{ trade.remaining_shares|int }} <span class="text-txt-ghost">/ {{ trade.shares|int }}</span></p>
                     </div>
                     <div>
-                        <span class="text-txt-muted text-xs">SL / TP1</span>
-                        <p><span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }}</span>
-                        <span class="text-txt-ghost">/</span>
-                        <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }}</span></p>
+                        <span class="text-txt-muted text-xs">SL / TP1 / TP2</span>
+                        <p class="leading-tight">
+                            <span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }}</span>
+                            <span class="text-txt-ghost">/</span>
+                            <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }}</span>
+                            <span class="text-txt-ghost">/</span>
+                            {% if trade.take_profit_2 %}
+                            <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_2) }}</span>
+                            {% else %}
+                            <span class="text-txt-ghost font-mono">—</span>
+                            {% endif %}
+                        </p>
                     </div>
                     <div id="trade-unrealized-{{ trade.id }}">
                         <span class="text-txt-muted text-xs">Acik K/Z</span>
@@ -220,7 +231,6 @@
 
             <form action="/signals/buy" method="post">
                 <input type="hidden" name="signal_score" value="0">
-                <input type="hidden" name="reasons" value="Manuel giris">
 
                 <div class="space-y-4">
                     <div>
@@ -270,11 +280,25 @@ function updateManualCost() {
     document.getElementById('manualCost').textContent = (price * shares).toLocaleString('tr-TR') + ' TL';
 }
 
-{% if open_trades %}
-/* Canli fiyat yukleme */
+/* Canli veri yukleme: piyasa rejim + fiyat/pnl (acik pozisyon varsa) */
 fetch('/api/prices')
     .then(r => r.json())
     .then(data => {
+        /* Piyasa rejim rozeti */
+        const regimeEl = document.getElementById('market-regime-badge');
+        if (regimeEl) {
+            if (data.market_bullish === true) {
+                regimeEl.className = 'text-xs font-medium text-positive';
+                regimeEl.textContent = '🟢 Boga';
+            } else if (data.market_bullish === false) {
+                regimeEl.className = 'text-xs font-medium text-negative';
+                regimeEl.textContent = '🔴 Ayi';
+            } else {
+                regimeEl.className = 'text-xs font-medium text-txt-ghost';
+                regimeEl.textContent = '—';
+            }
+        }
+
         if (!data.trades || !data.trades.length) return;
 
         /* Hero: toplam portfoy */
@@ -339,6 +363,5 @@ fetch('/api/prices')
         });
     })
     .catch(() => {});
-{% endif %}
 </script>
 {% endblock %}

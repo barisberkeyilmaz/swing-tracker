@@ -75,6 +75,7 @@
                     <th class="px-3 py-3 text-right">Maliyet</th>
                     <th class="px-3 py-3 text-right">SL</th>
                     <th class="px-3 py-3 text-right">TP1</th>
+                    <th class="px-3 py-3 text-right">TP2</th>
                     <th class="px-3 py-3 text-right">Acik K/Z</th>
                     <th class="px-3 py-3 text-right">Realize K/Z</th>
                     <th class="px-3 py-3">Tarih</th>
@@ -100,6 +101,7 @@
                     <td class="px-3 py-3 text-right text-txt-secondary font-mono tabular-nums">{{ "{:,.0f}".format(t.total_cost or 0) }}</td>
                     <td class="px-3 py-3 text-right text-negative font-mono tabular-nums">{{ "%.2f"|format(t.stop_loss or 0) }}</td>
                     <td class="px-3 py-3 text-right text-positive font-mono tabular-nums">{{ "%.2f"|format(t.take_profit_1 or 0) }}</td>
+                    <td class="px-3 py-3 text-right text-positive font-mono tabular-nums">{% if t.take_profit_2 %}{{ "%.2f"|format(t.take_profit_2) }}{% else %}<span class="text-txt-ghost">—</span>{% endif %}</td>
                     <td id="ptf-trade-pnl-{{ t.id }}" class="px-3 py-3 text-right text-txt-ghost font-mono tabular-nums text-xs">yukleniyor...</td>
                     <td class="px-3 py-3 text-right">
                         {% if t.exits %}
@@ -131,7 +133,7 @@
                 </div>
                 <span class="text-xs text-txt-ghost">{{ t.entry_date[:10] if t.entry_date else '-' }}</span>
             </div>
-            <div class="grid grid-cols-3 gap-2 text-sm">
+            <div class="grid grid-cols-3 gap-x-2 gap-y-3 text-sm">
                 <div>
                     <span class="text-txt-muted text-xs">Giris</span>
                     <p class="text-txt-primary font-mono tabular-nums">{{ "%.2f"|format(t.entry_price or 0) }}</p>
@@ -152,21 +154,31 @@
                     <span class="text-txt-muted text-xs">TP1</span>
                     <p class="text-positive font-mono tabular-nums">{{ "%.2f"|format(t.take_profit_1 or 0) }}</p>
                 </div>
-            </div>
-            <div id="ptf-trade-mobile-price-{{ t.id }}" class="mt-2 grid grid-cols-2 gap-2 text-sm">
                 <div>
+                    <span class="text-txt-muted text-xs">TP2</span>
+                    {% if t.take_profit_2 %}
+                    <p class="text-positive font-mono tabular-nums">{{ "%.2f"|format(t.take_profit_2) }}</p>
+                    {% else %}
+                    <p class="text-txt-ghost font-mono">—</p>
+                    {% endif %}
+                </div>
+                <div id="ptf-trade-mobile-price-{{ t.id }}">
                     <span class="text-txt-muted text-xs">Guncel</span>
                     <p class="text-txt-ghost font-mono text-xs">yukleniyor...</p>
                 </div>
+                <div id="ptf-trade-mobile-pnl-{{ t.id }}">
+                    <span class="text-txt-muted text-xs">Acik K/Z</span>
+                    <p class="text-txt-ghost font-mono text-xs">yukleniyor...</p>
+                </div>
+                <div>
+                    <span class="text-txt-muted text-xs">Realize K/Z</span>
+                    {% if t.exits %}
+                    <p class="font-mono tabular-nums font-medium {% if t.realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">{{ "{:+,.0f}".format(t.realized_pnl) }}</p>
+                    {% else %}
+                    <p class="text-txt-ghost font-mono">—</p>
+                    {% endif %}
+                </div>
             </div>
-            {% if t.exits %}
-            <div class="mt-2 flex items-center justify-between">
-                <span class="text-xs text-txt-muted">Realize K/Z</span>
-                <span class="text-sm font-mono tabular-nums font-medium {% if t.realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">
-                    {{ "{:+,.0f}".format(t.realized_pnl) }} TL
-                </span>
-            </div>
-            {% endif %}
         </div>
         {% endfor %}
     </div>
@@ -426,22 +438,34 @@ fetch('/portfolio/api/prices')
                 }
             }
 
-            /* Mobile cards */
-            const mobileEl = document.getElementById('ptf-trade-mobile-price-' + t.id);
-            if (mobileEl) {
+            /* Mobile cards — Guncel */
+            const mobilePriceEl = document.getElementById('ptf-trade-mobile-price-' + t.id);
+            if (mobilePriceEl) {
                 if (t.current_price) {
-                    const cls = (t.unrealized || 0) >= 0 ? 'text-positive' : 'text-negative';
-                    const sign = (t.unrealized || 0) >= 0 ? '+' : '';
-                    mobileEl.innerHTML =
-                        '<div><span class="text-txt-muted text-xs">Guncel</span>' +
-                        '<p class="text-txt-primary font-mono tabular-nums">' + t.current_price.toFixed(2) + '</p></div>' +
-                        '<div><span class="text-txt-muted text-xs">Acik K/Z</span>' +
-                        '<p class="font-mono tabular-nums ' + cls + '">' +
-                        sign + (t.unrealized || 0).toLocaleString('tr-TR') + '</p></div>';
+                    mobilePriceEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Guncel</span>' +
+                        '<p class="text-txt-primary font-mono tabular-nums">' + t.current_price.toFixed(2) + '</p>';
                 } else {
-                    mobileEl.innerHTML =
-                        '<div><span class="text-txt-muted text-xs">Guncel</span>' +
-                        '<p class="text-txt-ghost font-mono">\u2014</p></div>';
+                    mobilePriceEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Guncel</span>' +
+                        '<p class="text-txt-ghost font-mono">\u2014</p>';
+                }
+            }
+
+            /* Mobile cards — Acik K/Z */
+            const mobilePnlEl = document.getElementById('ptf-trade-mobile-pnl-' + t.id);
+            if (mobilePnlEl) {
+                if (t.unrealized !== null) {
+                    const cls = t.unrealized >= 0 ? 'text-positive' : 'text-negative';
+                    const sign = t.unrealized >= 0 ? '+' : '';
+                    mobilePnlEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Acik K/Z</span>' +
+                        '<p class="font-mono tabular-nums font-medium ' + cls + '">' +
+                        sign + t.unrealized.toLocaleString('tr-TR') + '</p>';
+                } else {
+                    mobilePnlEl.innerHTML =
+                        '<span class="text-txt-muted text-xs">Acik K/Z</span>' +
+                        '<p class="text-txt-ghost font-mono">\u2014</p>';
                 }
             }
         });
