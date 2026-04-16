@@ -14,7 +14,7 @@
         <p class="text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-txt-primary">
             <span id="ptf-live-value">{% if open_trades %}<span class="text-txt-ghost text-lg">yukleniyor...</span>{% else %}{{ "{:,.0f}".format(capital.total_portfolio) }} <span class="text-sm font-normal text-txt-ghost">TL</span>{% endif %}</span>
         </p>
-        <p class="text-xs text-txt-ghost mt-1">Yatirilan: {{ "{:,.0f}".format(capital.deposits) }} TL</p>
+        <p class="text-xs text-txt-ghost mt-1">Net nakit girisi: {{ "{:,.0f}".format(capital.net_deposits) }} TL</p>
     </div>
     <!-- Ikincil kartlar -->
     <div class="bg-surface-raised/50 rounded-lg p-4 border border-border-subtle">
@@ -246,9 +246,12 @@
 </div>
 
 <!-- Nakit Akisi -->
-{% if cash_flows %}
-<div class="mb-6">
-    <h2 class="text-base font-semibold text-txt-primary mb-3">Nakit Akisi</h2>
+{% if cash_flows.total %}
+<div class="mb-6" id="nakit-akisi">
+    <div class="flex items-baseline justify-between mb-3">
+        <h2 class="text-base font-semibold text-txt-primary">Nakit Akisi</h2>
+        <span class="text-xs text-txt-ghost">Toplam {{ cash_flows.total }} islem</span>
+    </div>
     <div class="overflow-x-auto bg-surface-raised rounded-lg border border-border-subtle">
         <table class="w-full text-sm">
             <thead>
@@ -262,7 +265,7 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-border-subtle">
-                {% for cf in cash_flows|reverse %}
+                {% for cf in cash_flows.items %}
                 <tr class="hover:bg-accent/5 transition-colors">
                     <td class="px-3 sm:px-5 py-2.5 text-txt-muted text-xs whitespace-nowrap">{{ cf.date }}</td>
                     <td class="px-3 py-2.5">
@@ -287,6 +290,29 @@
             </tbody>
         </table>
     </div>
+    {% if cash_flows.total_pages > 1 %}
+    <nav class="flex items-center justify-center gap-2 mt-4 text-sm" aria-label="Nakit akisi sayfalama">
+        {% if cash_flows.page > 1 %}
+        <a href="?cash_page={{ cash_flows.page - 1 }}#nakit-akisi"
+           class="px-3 py-1.5 rounded border border-border-subtle text-txt-muted hover:text-txt-primary hover:border-border transition-colors">
+            &larr; Onceki
+        </a>
+        {% else %}
+        <span class="px-3 py-1.5 rounded border border-border-subtle text-txt-ghost cursor-not-allowed">&larr; Onceki</span>
+        {% endif %}
+        <span class="px-3 py-1.5 text-txt-muted tabular-nums">
+            Sayfa <span class="text-txt-primary font-medium">{{ cash_flows.page }}</span> / {{ cash_flows.total_pages }}
+        </span>
+        {% if cash_flows.page < cash_flows.total_pages %}
+        <a href="?cash_page={{ cash_flows.page + 1 }}#nakit-akisi"
+           class="px-3 py-1.5 rounded border border-border-subtle text-txt-muted hover:text-txt-primary hover:border-border transition-colors">
+            Sonraki &rarr;
+        </a>
+        {% else %}
+        <span class="px-3 py-1.5 rounded border border-border-subtle text-txt-ghost cursor-not-allowed">Sonraki &rarr;</span>
+        {% endif %}
+    </nav>
+    {% endif %}
 </div>
 {% endif %}
 

@@ -17,7 +17,7 @@ router = APIRouter(prefix="/portfolio")
 
 
 @router.get("", response_class=HTMLResponse)
-async def portfolio(request: Request):
+async def portfolio(request: Request, cash_page: int = 1):
     repo = get_repo()
     config = get_config()
 
@@ -44,9 +44,11 @@ async def portfolio(request: Request):
             except (json.JSONDecodeError, TypeError):
                 pass
 
-    # Sermaye ozeti + nakit akisi
+    # Sermaye ozeti + nakit akisi (sayfalanmis, TR saatinde)
     capital = calc_capital_summary(repo)
-    cash_flows = build_cash_flows(repo)
+    cash_flows = build_cash_flows(
+        repo, page=cash_page, per_page=50, tz=config.timezone
+    )
 
     # Snapshotlar
     snapshots = repo.get_snapshots(limit=60)

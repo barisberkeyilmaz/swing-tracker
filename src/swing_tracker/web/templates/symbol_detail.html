@@ -285,83 +285,18 @@
 
 <!-- Analist + Ortaklik Yapisi -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6">
-    <!-- Analist Gorusleri -->
-    {% if analyst %}
+    <!-- Analist Gorusleri — HTMX ile lazy load (borsapy'de yavas) -->
     <div class="bg-surface-raised rounded-lg border border-border-subtle p-5">
         <h3 class="text-sm font-medium text-txt-muted uppercase tracking-wide mb-4">Analist Gorusleri</h3>
-        <div class="space-y-3">
-            {% if analyst.recommendation %}
-            <div class="flex items-center justify-between">
-                <span class="text-txt-muted">Konsensus</span>
-                <span class="px-3 py-1 rounded-lg text-sm font-bold
-                    {% if analyst.recommendation == 'AL' %}bg-positive-muted text-positive
-                    {% elif analyst.recommendation == 'SAT' %}bg-negative-muted text-negative
-                    {% else %}bg-warning-muted text-warning{% endif %}">
-                    {{ analyst.recommendation }}
-                </span>
+        <div hx-get="/symbol/{{ symbol }}/analyst"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+            <div class="flex items-center gap-2 text-sm text-txt-ghost py-4">
+                <span class="inline-block w-3 h-3 border-2 border-txt-ghost border-t-transparent rounded-full animate-spin"></span>
+                <span>Analist verisi yukleniyor...</span>
             </div>
-            {% endif %}
-            {% if analyst.target_price %}
-            <div class="flex justify-between text-sm">
-                <span class="text-txt-muted">Hedef Fiyat</span>
-                <span class="text-txt-primary font-mono tabular-nums font-medium">{{ "%.2f"|format(analyst.target_price) }} TL</span>
-            </div>
-            {% endif %}
-            {% if analyst.upside is not none %}
-            <div class="flex justify-between text-sm">
-                <span class="text-txt-muted">Potansiyel</span>
-                <span class="font-mono tabular-nums font-medium
-                    {% if analyst.upside >= 0 %}text-positive{% else %}text-negative{% endif %}">
-                    {{ "%+.1f"|format(analyst.upside) }}%
-                </span>
-            </div>
-            {% endif %}
-            {% if analyst.target_low %}
-            <div class="border-t border-border-subtle pt-3"></div>
-            <div class="grid grid-cols-4 gap-2 text-center text-xs">
-                <div>
-                    <p class="text-txt-muted mb-1">Min</p>
-                    <p class="text-txt-primary font-mono tabular-nums">{{ "%.0f"|format(analyst.target_low) }}</p>
-                </div>
-                <div>
-                    <p class="text-txt-muted mb-1">Ort</p>
-                    <p class="text-txt-primary font-mono tabular-nums font-medium">{{ "%.0f"|format(analyst.target_mean or 0) }}</p>
-                </div>
-                <div>
-                    <p class="text-txt-muted mb-1">Medyan</p>
-                    <p class="text-txt-primary font-mono tabular-nums">{{ "%.0f"|format(analyst.target_median or 0) }}</p>
-                </div>
-                <div>
-                    <p class="text-txt-muted mb-1">Max</p>
-                    <p class="text-txt-primary font-mono tabular-nums">{{ "%.0f"|format(analyst.target_high or 0) }}</p>
-                </div>
-            </div>
-            {% if analyst.analyst_count %}
-            <p class="text-xs text-txt-ghost text-center">{{ analyst.analyst_count }} analist</p>
-            {% endif %}
-            {% endif %}
-            {% if analyst.total_rec %}
-            <div class="border-t border-border-subtle pt-3"></div>
-            <div class="flex h-4 rounded-full overflow-hidden">
-                {% if analyst.strong_buy + analyst.buy > 0 %}
-                <div class="bg-positive" style="width: {{ (analyst.strong_buy + analyst.buy) / analyst.total_rec * 100 }}%"></div>
-                {% endif %}
-                {% if analyst.hold > 0 %}
-                <div class="bg-warning" style="width: {{ analyst.hold / analyst.total_rec * 100 }}%"></div>
-                {% endif %}
-                {% if analyst.sell + analyst.strong_sell > 0 %}
-                <div class="bg-negative" style="width: {{ (analyst.sell + analyst.strong_sell) / analyst.total_rec * 100 }}%"></div>
-                {% endif %}
-            </div>
-            <div class="flex justify-between text-xs text-txt-muted mt-1">
-                <span>Al: {{ analyst.strong_buy + analyst.buy }}</span>
-                <span>Tut: {{ analyst.hold }}</span>
-                <span>Sat: {{ analyst.sell + analyst.strong_sell }}</span>
-            </div>
-            {% endif %}
         </div>
     </div>
-    {% endif %}
 
     <!-- Ortaklik Yapisi -->
     {% if holders %}

@@ -9,30 +9,39 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 import borsapy as bp
 
 logger = logging.getLogger(__name__)
 
 TTL = 60  # seconds — matches the 60s auto-refresh in base.html
+MAX_SIZE = 500  # LRU capacity — prevents unbounded memory growth
+MAX_WORKERS = 10  # borsapy paralel fetch worker sayisi
 
 
 class PriceCache:
-    def __init__(self):
-        self._cache: dict[str, tuple[float, float]] = {}  # symbol -> (price, timestamp)
+    def __init__(self, max_size: int = MAX_SIZE):
+        self._cache: OrderedDict[str, tuple[float, float]] = OrderedDict()
         self._lock = threading.Lock()
+        self._max_size = max_size
 
     def get(self, symbol: str) -> float | None:
-        """Return cached price if fresh, else None."""
+        """Return cached price if fresh, else None. Refreshes LRU order on hit."""
         with self._lock:
             entry = self._cache.get(symbol)
             if entry and (time.monotonic() - entry[1]) < TTL:
+                self._cache.move_to_end(symbol)
                 return entry[0]
         return None
 
     def _set(self, symbol: str, price: float) -> None:
         with self._lock:
             self._cache[symbol] = (price, time.monotonic())
+            self._cache.move_to_end(symbol)
+            while len(self._cache) > self._max_size:
+                self._cache.popitem(last=False)
 
     def fetch_one(self, symbol: str) -> float | None:
         """Fetch price for a single symbol, using cache if fresh."""
@@ -55,13 +64,21 @@ class PriceCache:
             logger.warning("Fiyat cekme hatasi: %s", symbol, exc_info=True)
             return None
 
-    def fetch_many(self, symbols: list[str]) -> dict[str, float]:
-        """Fetch prices for multiple symbols, returns {symbol: price}."""
+    def fetch_many(
+        self, symbols: list[str], max_workers: int = MAX_WORKERS
+    ) -> dict[str, float]:
+        """Fetch prices for multiple symbols in parallel, returns {symbol: price}."""
+        if not symbols:
+            return {}
+
+        unique = list(dict.fromkeys(symbols))  # sirayi koru, duplicate'i ele
+        workers = min(max_workers, len(unique))
+
         result: dict[str, float] = {}
-        for symbol in symbols:
-            price = self.fetch_one(symbol)
-            if price is not None:
-                result[symbol] = price
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for symbol, price in zip(unique, pool.map(self.fetch_one, unique)):
+                if price is not None:
+                    result[symbol] = price
         return result
 
 

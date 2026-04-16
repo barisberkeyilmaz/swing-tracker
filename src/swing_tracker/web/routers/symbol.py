@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -12,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from swing_tracker.core.signals import _add_all_indicators, _get_indicators
 from swing_tracker.web.dependencies import templates, get_repo, get_config
+from swing_tracker.web.indicator_cache import indicator_cache
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,59 @@ def _format_market_cap(val: float | None) -> str:
     if val >= 1_000_000:
         return f"{val / 1_000_000:.1f}M TL"
     return f"{val:,.0f} TL"
+
+
+# ─── Borsapy fetch helpers (concurrent via asyncio.gather + to_thread) ───
+
+def _fetch_info(ticker: bp.Ticker, symbol: str) -> dict | None:
+    try:
+        return ticker.info
+    except Exception:
+        logger.exception(f"{symbol}: info alinamadi")
+        return None
+
+
+def _fetch_history(ticker: bp.Ticker, symbol: str) -> pd.DataFrame | None:
+    try:
+        df = ticker.history(period="6mo", interval="1d")
+        if df is not None:
+            _ = len(df)  # eager materialization — borsapy lazy olursa zorla
+        return df
+    except Exception:
+        logger.warning(f"{symbol}: Teknik veri alinamadi", exc_info=True)
+        return None
+
+
+def _fetch_recommendations(ticker: bp.Ticker, symbol: str) -> dict | None:
+    try:
+        return ticker.recommendations
+    except Exception:
+        logger.warning(f"{symbol}: Analist tavsiyesi alinamadi", exc_info=True)
+        return None
+
+
+def _fetch_targets(ticker: bp.Ticker, symbol: str) -> dict | None:
+    try:
+        return ticker.analyst_price_targets
+    except Exception:
+        logger.warning(f"{symbol}: Fiyat hedefi alinamadi", exc_info=True)
+        return None
+
+
+def _fetch_rec_summary(ticker: bp.Ticker, symbol: str) -> dict | None:
+    try:
+        return ticker.recommendations_summary
+    except Exception:
+        logger.warning(f"{symbol}: Tavsiye ozeti alinamadi", exc_info=True)
+        return None
+
+
+def _fetch_major_holders(ticker: bp.Ticker, symbol: str) -> pd.DataFrame | None:
+    try:
+        return ticker.major_holders
+    except Exception:
+        logger.warning(f"{symbol}: Ortaklik verisi alinamadi", exc_info=True)
+        return None
 
 
 def _technical_summary(df: pd.DataFrame) -> dict:
@@ -133,14 +188,19 @@ async def symbol_detail(request: Request, symbol: str):
     symbol = symbol.upper()
     repo = get_repo()
     config = get_config()
+    now = datetime.now(config.timezone)
 
-    try:
-        ticker = bp.Ticker(symbol)
-        info = ticker.info
-        price = _safe_get(info, "last") or _safe_get(info, "close", 0)
-    except Exception:
-        logger.exception(f"{symbol}: Veri alinamadi")
-        now = datetime.now(config.timezone)
+    ticker = bp.Ticker(symbol)
+
+    # Hizli fetch'ler paralelde; yavas analyst property'leri ayri HTMX fragment
+    info, df, mh = await asyncio.gather(
+        asyncio.to_thread(_fetch_info, ticker, symbol),
+        asyncio.to_thread(_fetch_history, ticker, symbol),
+        asyncio.to_thread(_fetch_major_holders, ticker, symbol),
+    )
+
+    # Info yoksa tum sayfa error path'inde render
+    if info is None:
         return templates.TemplateResponse(
             request,
             "symbol_detail.html",
@@ -153,6 +213,8 @@ async def symbol_detail(request: Request, symbol: str):
             },
             status_code=200,
         )
+
+    price = _safe_get(info, "last") or _safe_get(info, "close", 0)
 
     # Fiyat & piyasa verileri
     market = {
@@ -171,7 +233,6 @@ async def symbol_detail(request: Request, symbol: str):
         "market_cap_fmt": _format_market_cap(_safe_get(info, "marketCap")),
     }
 
-    # Temel gostergeler
     fundamentals = {
         "pe": _safe_get(info, "trailingPE"),
         "pb": _safe_get(info, "priceToBook"),
@@ -183,74 +244,33 @@ async def symbol_detail(request: Request, symbol: str):
         "industry": _safe_get(info, "industry", "-"),
     }
 
-    # Teknik gorunum
-    try:
-        df = ticker.history(period="6mo", interval="1d")
-        technical = _technical_summary(df)
-    except Exception:
-        logger.warning(f"{symbol}: Teknik veri alinamadi")
-        technical = {}
+    # Teknik gorunum — 5 dk TTL cache ile agir indikator hesabini atla
+    technical = indicator_cache.get(symbol)
+    if technical is None:
+        technical = _technical_summary(df) if df is not None else {}
+        if technical:
+            indicator_cache.set(symbol, technical)
 
-    # Grafik verisi (varsayilan 6 ay)
+    # Chart data — vectorized (iterrows yerine)
     chart_data = {}
     if df is not None and not df.empty:
         chart_data = {
-            "dates": [d.strftime("%Y-%m-%d") for d in df.index],
-            "prices": [round(float(row["Close"]), 2) for _, row in df.iterrows()],
-            "volumes": [int(row["Volume"]) for _, row in df.iterrows()],
+            "dates": df.index.strftime("%Y-%m-%d").tolist(),
+            "prices": df["Close"].round(2).astype(float).tolist(),
+            "volumes": df["Volume"].astype(int).tolist(),
         }
 
-    # Analist gorusleri
-    analyst = {}
-    try:
-        rec = ticker.recommendations
-        if rec:
-            analyst["recommendation"] = rec.get("recommendation")
-            analyst["target_price"] = rec.get("target_price")
-            analyst["upside"] = rec.get("upside_potential")
-
-        targets = ticker.analyst_price_targets
-        if targets:
-            analyst["target_low"] = targets.get("low")
-            analyst["target_high"] = targets.get("high")
-            analyst["target_mean"] = targets.get("mean")
-            analyst["target_median"] = targets.get("median")
-            analyst["analyst_count"] = targets.get("numberOfAnalysts")
-
-        rec_summary = ticker.recommendations_summary
-        if rec_summary:
-            analyst["strong_buy"] = rec_summary.get("strongBuy", 0)
-            analyst["buy"] = rec_summary.get("buy", 0)
-            analyst["hold"] = rec_summary.get("hold", 0)
-            analyst["sell"] = rec_summary.get("sell", 0)
-            analyst["strong_sell"] = rec_summary.get("strongSell", 0)
-            total = sum([
-                analyst["strong_buy"], analyst["buy"], analyst["hold"],
-                analyst["sell"], analyst["strong_sell"],
-            ])
-            analyst["total_rec"] = total
-    except Exception:
-        logger.warning(f"{symbol}: Analist verisi alinamadi")
-
-    # Ortaklik yapisi
     holders = []
-    try:
-        mh = ticker.major_holders
-        if mh is not None and not mh.empty:
-            for name, row in mh.iterrows():
-                holders.append({"name": name, "pct": round(row["Percentage"], 2)})
-    except Exception:
-        logger.warning(f"{symbol}: Ortaklik verisi alinamadi")
+    if mh is not None and not mh.empty:
+        names = mh.index.tolist()
+        pcts = mh["Percentage"].round(2).tolist()
+        holders = [{"name": n, "pct": p} for n, p in zip(names, pcts)]
 
-    # Acik pozisyon var mi?
     open_trades = repo.get_open_trades()
     user_positions = [t for t in open_trades if t["symbol"] == symbol]
 
-    # Son sinyal
     signals = repo.get_recent_signals(limit=50)
     last_signal = next((s for s in signals if s["symbol"] == symbol), None)
-
-    now = datetime.now(config.timezone)
 
     return templates.TemplateResponse(
         request,
@@ -261,12 +281,53 @@ async def symbol_detail(request: Request, symbol: str):
             "fundamentals": fundamentals,
             "technical": technical,
             "chart_data": chart_data,
-            "analyst": analyst,
             "holders": holders,
             "user_positions": user_positions,
             "last_signal": last_signal,
             "now": now,
         },
+    )
+
+
+@router.get("/{symbol}/analyst", response_class=HTMLResponse)
+async def analyst_fragment(request: Request, symbol: str):
+    """Analist gorusleri HTMX fragment — borsapy'de yavas olan 3 property'yi
+    paralel ceker, ana sayfayi bloke etmez."""
+    symbol = symbol.upper()
+    ticker = bp.Ticker(symbol)
+
+    rec, targets, rec_summary = await asyncio.gather(
+        asyncio.to_thread(_fetch_recommendations, ticker, symbol),
+        asyncio.to_thread(_fetch_targets, ticker, symbol),
+        asyncio.to_thread(_fetch_rec_summary, ticker, symbol),
+    )
+
+    analyst: dict = {}
+    if rec:
+        analyst["recommendation"] = rec.get("recommendation")
+        analyst["target_price"] = rec.get("target_price")
+        analyst["upside"] = rec.get("upside_potential")
+    if targets:
+        analyst["target_low"] = targets.get("low")
+        analyst["target_high"] = targets.get("high")
+        analyst["target_mean"] = targets.get("mean")
+        analyst["target_median"] = targets.get("median")
+        analyst["analyst_count"] = targets.get("numberOfAnalysts")
+    if rec_summary:
+        analyst["strong_buy"] = rec_summary.get("strongBuy", 0)
+        analyst["buy"] = rec_summary.get("buy", 0)
+        analyst["hold"] = rec_summary.get("hold", 0)
+        analyst["sell"] = rec_summary.get("sell", 0)
+        analyst["strong_sell"] = rec_summary.get("strongSell", 0)
+        analyst["total_rec"] = sum([
+            analyst["strong_buy"], analyst["buy"], analyst["hold"],
+            analyst["sell"], analyst["strong_sell"],
+        ])
+
+    return templates.TemplateResponse(
+        request,
+        "fragments/analyst.html",
+        context={"analyst": analyst or None},
     )
 
 

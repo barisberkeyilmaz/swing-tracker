@@ -161,6 +161,17 @@ class Repository:
         self._conn.execute("DELETE FROM trade_exits WHERE id = ?", (exit_id,))
         self._conn.commit()
 
+    def get_all_trade_exits(self) -> dict[int, list[dict]]:
+        """Tum exit'leri tek query'de cek, trade_id'ye gore grupla. N+1 kaciniri."""
+        rows = self._conn.execute(
+            "SELECT * FROM trade_exits ORDER BY trade_id, id"
+        ).fetchall()
+        grouped: dict[int, list[dict]] = {}
+        for r in rows:
+            d = dict(r)
+            grouped.setdefault(d["trade_id"], []).append(d)
+        return grouped
+
     def get_trade_exits(self, trade_id: int) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM trade_exits WHERE trade_id = ?", (trade_id,)
