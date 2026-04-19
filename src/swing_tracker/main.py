@@ -26,6 +26,7 @@ logger = logging.getLogger("swing_tracker")
 # Global references for shutdown
 _scheduler: BackgroundScheduler | None = None
 _notifier: TelegramNotifier | None = None
+_scanner: Scanner | None = None
 
 
 def setup_logging(config: Config) -> None:
@@ -133,11 +134,13 @@ def shutdown(signum=None, frame=None):
     logger.info("Kapatiliyor...")
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
+    if _scanner is not None:
+        _scanner.close()
     sys.exit(0)
 
 
 def main():
-    global _scheduler, _notifier
+    global _scheduler, _notifier, _scanner
 
     # Load config
     config = load_config()
@@ -158,6 +161,7 @@ def main():
     portfolio = PortfolioManager(repo, config)
 
     scanner = Scanner(repo, config)
+    _scanner = scanner
     monitor = Monitor(repo, config)
     _notifier = TelegramNotifier(config.telegram)
 

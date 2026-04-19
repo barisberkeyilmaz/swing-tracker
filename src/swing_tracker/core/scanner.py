@@ -9,12 +9,14 @@ Uses the same entry logic proven in backtesting:
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import borsapy as bp
 import pandas as pd
 
 from swing_tracker.config import Config
+from swing_tracker.core.ohlcv_cache import get_ohlcv
 from swing_tracker.core.signals import (
     AnalysisResult,
     TradeSetup,
@@ -58,6 +60,30 @@ class Scanner:
         self._config = config
         self._market_bullish: bool | None = None
         self._usdtry_rate: float | None = None
+        workers = max(1, int(getattr(config.cache, "scanner_max_workers", 10)))
+        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="scanner")
+
+    def close(self) -> None:
+        """Graceful shutdown of the fetch worker pool."""
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def _fetch_daily(self, symbol: str, period: str = "6mo") -> pd.DataFrame | None:
+        return get_ohlcv(
+            symbol,
+            interval="1d",
+            period=period,
+            repo=self._repo,
+            cache_cfg=self._config.cache,
+        )
+
+    def _fetch_hourly(self, symbol: str, period: str = "5d") -> pd.DataFrame | None:
+        return get_ohlcv(
+            symbol,
+            interval="1h",
+            period=period,
+            repo=self._repo,
+            cache_cfg=self._config.cache,
+        )
 
     def _get_usdtry(self) -> float | None:
         """Get current USDTRY rate."""
@@ -77,8 +103,14 @@ class Scanner:
     def check_market_regime(self) -> bool:
         """Check if market index is above SMA 50 (bull market)."""
         try:
-            ticker = bp.Ticker(self._config.scanner.universe)
-            df = ticker.history(period="6mo", interval="1d")
+            df = get_ohlcv(
+                self._config.scanner.universe,
+                interval="1d",
+                period="6mo",
+                repo=self._repo,
+                cache_cfg=self._config.cache,
+                ttl_override_minutes=self._config.cache.regime_ttl_minutes,
+            )
             if df is None or len(df) < 50:
                 logger.warning("Endeks verisi yetersiz, piyasa filtresi devre disi")
                 return True
@@ -108,17 +140,15 @@ class Scanner:
     ) -> ScoredCandidate | None:
         """Score a single symbol using multi-timeframe analysis."""
         try:
-            ticker = bp.Ticker(symbol)
-
-            # Daily data
-            df_daily = ticker.history(period="6mo", interval="1d")
+            # Daily data (cached)
+            df_daily = self._fetch_daily(symbol, period="6mo")
             if df_daily is None or len(df_daily) < 50:
                 return None
             df_daily = _add_all_indicators(df_daily)
             df_daily["Vol_Avg_20"] = df_daily["Volume"].rolling(20).mean()
 
-            # Hourly data (last 5 days for entry timing)
-            df_hourly = ticker.history(period="5d", interval="1h")
+            # Hourly data (cached)
+            df_hourly = self._fetch_hourly(symbol, period="5d")
 
             last_daily = df_daily.iloc[-1]
             prev_daily = df_daily.iloc[-2]
@@ -239,8 +269,7 @@ class Scanner:
     def _score_symbol_all(self, symbol: str) -> dict | None:
         """Score a symbol returning all details including trend fail status."""
         try:
-            ticker = bp.Ticker(symbol)
-            df_daily = ticker.history(period="6mo", interval="1d")
+            df_daily = self._fetch_daily(symbol, period="6mo")
             if df_daily is None or len(df_daily) < 50:
                 return None
             df_daily = _add_all_indicators(df_daily)
@@ -279,7 +308,7 @@ class Scanner:
                     reasons.append(f"BB={dist:.1f}%(+2)")
 
             # Hourly RSI
-            df_hourly = ticker.history(period="5d", interval="1h")
+            df_hourly = self._fetch_hourly(symbol, period="5d")
             if df_hourly is not None and len(df_hourly) >= 3:
                 df_hourly = _add_all_indicators(df_hourly)
                 h_last = df_hourly.iloc[-1]
@@ -348,10 +377,13 @@ class Scanner:
 
         logger.info(f"Toplam {len(candidate_symbols)} benzersiz aday bulundu")
 
-        # Score each candidate
+        # Score each candidate in parallel
         candidates: list[ScoredCandidate] = []
-        for symbol in candidate_symbols:
-            scored = self._score_symbol(symbol, available_cash, params)
+        results = self._executor.map(
+            lambda s: self._score_symbol(s, available_cash, params),
+            list(candidate_symbols),
+        )
+        for scored in results:
             if scored is not None:
                 candidates.append(scored)
                 self._log_scored_signal(scored)
@@ -394,13 +426,18 @@ class Scanner:
 
         logger.info(f"Deep scan basliyor: {len(all_symbols)} sembol ({universe})")
 
+        # Parallel scoring
         candidates: list[ScoredCandidate] = []
-        for i, symbol in enumerate(all_symbols):
-            if (i + 1) % 20 == 0:
-                logger.info(f"Ilerleme: {i + 1}/{len(all_symbols)}")
-
-            # In bear market, still scan but mark as such
-            scored = self._score_symbol(str(symbol), available_cash, params)
+        symbols_str = [str(s) for s in all_symbols]
+        results = self._executor.map(
+            lambda s: self._score_symbol(s, available_cash, params),
+            symbols_str,
+        )
+        done = 0
+        for scored in results:
+            done += 1
+            if done % 50 == 0:
+                logger.info(f"Ilerleme: {done}/{len(symbols_str)}")
             if scored is not None:
                 candidates.append(scored)
                 self._log_scored_signal(scored)
