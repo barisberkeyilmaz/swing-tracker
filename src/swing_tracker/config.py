@@ -50,6 +50,15 @@ class MonitorConfig:
 
 
 @dataclass
+class CacheConfig:
+    enabled: bool = True
+    daily_ttl_minutes: int = 60
+    hourly_ttl_minutes: int = 15
+    regime_ttl_minutes: int = 30
+    scanner_max_workers: int = 5
+
+
+@dataclass
 class StrategyConfig:
     name: str = "default"
     min_score: int = 30
@@ -74,6 +83,7 @@ class Config:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
     strategies: dict[str, StrategyConfig] = field(default_factory=dict)
 
     def get_strategy(self, name: str = "default") -> StrategyConfig:
@@ -139,6 +149,16 @@ def load_config(config_path: Path | None = None) -> Config:
         check_interval_minutes=mon.get("check_interval_minutes", 5),
         trailing_stop_enabled=mon.get("trailing_stop_enabled", True),
         trailing_stop_atr_mult=mon.get("trailing_stop_atr_mult", 1.5),
+    )
+
+    # Cache
+    ca = raw.get("cache", {})
+    config.cache = CacheConfig(
+        enabled=ca.get("enabled", True),
+        daily_ttl_minutes=ca.get("daily_ttl_minutes", 60),
+        hourly_ttl_minutes=ca.get("hourly_ttl_minutes", 15),
+        regime_ttl_minutes=ca.get("regime_ttl_minutes", 30),
+        scanner_max_workers=ca.get("scanner_max_workers", 5),
     )
 
     # Strategies

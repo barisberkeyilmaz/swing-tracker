@@ -341,3 +341,91 @@ class Repository:
                 "SELECT * FROM cash_transactions ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── OHLCV Cache ──
+
+    def get_cached_ohlcv(
+        self,
+        symbol: str,
+        interval: str,
+        since_ts: str | None = None,
+    ) -> list[dict]:
+        if since_ts is not None:
+            rows = self._conn.execute(
+                """SELECT bar_ts, open, high, low, close, volume
+                   FROM ohlcv_cache
+                   WHERE symbol = ? AND interval = ? AND bar_ts >= ?
+                   ORDER BY bar_ts ASC""",
+                (symbol, interval, since_ts),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """SELECT bar_ts, open, high, low, close, volume
+                   FROM ohlcv_cache
+                   WHERE symbol = ? AND interval = ?
+                   ORDER BY bar_ts ASC""",
+                (symbol, interval),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_ohlcv_bars(
+        self,
+        symbol: str,
+        interval: str,
+        bars: list[dict],
+    ) -> None:
+        if not bars:
+            return
+        rows = [
+            (
+                symbol,
+                interval,
+                b["bar_ts"],
+                b.get("open"),
+                b.get("high"),
+                b.get("low"),
+                b.get("close"),
+                b.get("volume"),
+            )
+            for b in bars
+        ]
+        self._conn.executemany(
+            """INSERT INTO ohlcv_cache
+               (symbol, interval, bar_ts, open, high, low, close, volume)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(symbol, interval, bar_ts) DO UPDATE SET
+                 open = excluded.open,
+                 high = excluded.high,
+                 low = excluded.low,
+                 close = excluded.close,
+                 volume = excluded.volume""",
+            rows,
+        )
+        self._conn.commit()
+
+    def get_ohlcv_meta(self, symbol: str, interval: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM ohlcv_cache_meta WHERE symbol = ? AND interval = ?",
+            (symbol, interval),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_ohlcv_meta(
+        self,
+        symbol: str,
+        interval: str,
+        last_fetch_at: str,
+        last_bar_ts: str | None,
+        bar_count: int,
+    ) -> None:
+        self._conn.execute(
+            """INSERT INTO ohlcv_cache_meta
+               (symbol, interval, last_fetch_at, last_bar_ts, bar_count)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(symbol, interval) DO UPDATE SET
+                 last_fetch_at = excluded.last_fetch_at,
+                 last_bar_ts = excluded.last_bar_ts,
+                 bar_count = excluded.bar_count""",
+            (symbol, interval, last_fetch_at, last_bar_ts, bar_count),
+        )
+        self._conn.commit()

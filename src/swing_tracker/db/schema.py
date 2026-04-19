@@ -92,6 +92,34 @@ TABLES = [
         created_at TEXT DEFAULT (datetime('now'))
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS ohlcv_cache (
+        symbol TEXT NOT NULL,
+        interval TEXT NOT NULL,
+        bar_ts TEXT NOT NULL,
+        open REAL,
+        high REAL,
+        low REAL,
+        close REAL,
+        volume REAL,
+        PRIMARY KEY (symbol, interval, bar_ts)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ohlcv_cache_meta (
+        symbol TEXT NOT NULL,
+        interval TEXT NOT NULL,
+        last_fetch_at TEXT NOT NULL,
+        last_bar_ts TEXT,
+        bar_count INTEGER,
+        PRIMARY KEY (symbol, interval)
+    )
+    """,
+]
+
+INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol_interval "
+    "ON ohlcv_cache(symbol, interval, bar_ts DESC)",
 ]
 
 
@@ -100,4 +128,6 @@ def create_all_tables(conn) -> None:
     cursor = conn.cursor()
     for ddl in TABLES:
         cursor.execute(ddl)
+    for idx in INDEXES:
+        cursor.execute(idx)
     conn.commit()

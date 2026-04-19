@@ -32,6 +32,14 @@ check_interval_minutes = 5
 trailing_stop_enabled = true
 trailing_stop_atr_mult = 1.5
 
+[cache]
+enabled = true
+daily_ttl_minutes = 60
+hourly_ttl_minutes = 15
+regime_ttl_minutes = 30
+# TradingView 429 (rate limit) icin 5 guvenli; 10 sik 429 yiyor.
+scanner_max_workers = 5
+
 [backtest]
 symbols = [
     "THYAO", "ASELS", "KCHOL", "SAHOL", "BIMAS",
