@@ -115,6 +115,25 @@ TABLES = [
         PRIMARY KEY (symbol, interval)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS liquid_universe (
+        symbol TEXT PRIMARY KEY,
+        market TEXT,
+        median_volume_tl REAL,
+        volume_days INTEGER,
+        last_close REAL,
+        market_cap_tl REAL,
+        updated_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS symbol_market_cache (
+        symbol TEXT PRIMARY KEY,
+        market TEXT,
+        sector TEXT,
+        fetched_at TEXT NOT NULL
+    )
+    """,
 ]
 
 INDEXES = [

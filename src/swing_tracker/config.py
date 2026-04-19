@@ -35,6 +35,7 @@ class PortfolioConfig:
 @dataclass
 class ScannerConfig:
     universe: str = "XU100"
+    market_regime_index: str = "XU100"
     quick_scan_interval_minutes: int = 30
     deep_scan_time: str = "18:30"
     prefilters: list[str] = field(default_factory=lambda: [
@@ -56,6 +57,18 @@ class CacheConfig:
     hourly_ttl_minutes: int = 15
     regime_ttl_minutes: int = 30
     scanner_max_workers: int = 5
+
+
+@dataclass
+class LiquidityConfig:
+    enabled: bool = True
+    min_daily_volume_tl: float = 10_000_000.0
+    min_volume_days: int = 15
+    excluded_markets: list[str] = field(default_factory=lambda: ["GOZALTI PAZARI"])
+    build_time: str = "18:15"
+    fallback_universe: str = "XU100"
+    market_cache_ttl_days: int = 7
+    builder_max_workers: int = 5
 
 
 @dataclass
@@ -84,6 +97,7 @@ class Config:
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
+    liquidity: LiquidityConfig = field(default_factory=LiquidityConfig)
     strategies: dict[str, StrategyConfig] = field(default_factory=dict)
 
     def get_strategy(self, name: str = "default") -> StrategyConfig:
@@ -138,6 +152,7 @@ def load_config(config_path: Path | None = None) -> Config:
     sc = raw.get("scanner", {})
     config.scanner = ScannerConfig(
         universe=sc.get("universe", "XU100"),
+        market_regime_index=sc.get("market_regime_index", "XU100"),
         quick_scan_interval_minutes=sc.get("quick_scan_interval_minutes", 30),
         deep_scan_time=sc.get("deep_scan_time", "18:30"),
         prefilters=sc.get("prefilters", ["rsi < 35 and close > sma_50"]),
@@ -159,6 +174,19 @@ def load_config(config_path: Path | None = None) -> Config:
         hourly_ttl_minutes=ca.get("hourly_ttl_minutes", 15),
         regime_ttl_minutes=ca.get("regime_ttl_minutes", 30),
         scanner_max_workers=ca.get("scanner_max_workers", 5),
+    )
+
+    # Liquidity
+    li = raw.get("liquidity", {})
+    config.liquidity = LiquidityConfig(
+        enabled=li.get("enabled", True),
+        min_daily_volume_tl=float(li.get("min_daily_volume_tl", 10_000_000)),
+        min_volume_days=li.get("min_volume_days", 15),
+        excluded_markets=list(li.get("excluded_markets", ["GOZALTI PAZARI"])),
+        build_time=li.get("build_time", "18:15"),
+        fallback_universe=li.get("fallback_universe", "XU100"),
+        market_cache_ttl_days=li.get("market_cache_ttl_days", 7),
+        builder_max_workers=li.get("builder_max_workers", 5),
     )
 
     # Strategies

@@ -26,6 +26,7 @@ from swing_tracker.core.signals import (
     detect_support_resistance,
 )
 from swing_tracker.core.strategy import get_strategy, get_strategy_params
+from swing_tracker.core.universe import UniverseBuilder
 from swing_tracker.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -55,9 +56,15 @@ class ScanResult:
 
 
 class Scanner:
-    def __init__(self, repo: Repository, config: Config):
+    def __init__(
+        self,
+        repo: Repository,
+        config: Config,
+        universe_builder: UniverseBuilder | None = None,
+    ):
         self._repo = repo
         self._config = config
+        self._universe_builder = universe_builder
         self._market_bullish: bool | None = None
         self._usdtry_rate: float | None = None
         workers = max(1, int(getattr(config.cache, "scanner_max_workers", 10)))
@@ -101,10 +108,11 @@ class Scanner:
         return None
 
     def check_market_regime(self) -> bool:
-        """Check if market index is above SMA 50 (bull market)."""
+        """Check if market regime index is above SMA 100 (bull market)."""
+        regime_index = self._config.scanner.market_regime_index
         try:
             df = get_ohlcv(
-                self._config.scanner.universe,
+                regime_index,
                 interval="1d",
                 period="6mo",
                 repo=self._repo,
@@ -127,8 +135,8 @@ class Scanner:
             self._market_bullish = close > sma
             status = "BOGA" if self._market_bullish else "AYI"
             logger.info(
-                f"Piyasa rejimi: {self._config.scanner.universe} "
-                f"{close:.0f} vs SMA50 {sma:.0f} → {status}"
+                f"Piyasa rejimi: {regime_index} "
+                f"{close:.0f} vs SMA100 {sma:.0f} → {status}"
             )
             return self._market_bullish
         except Exception:
@@ -375,6 +383,16 @@ class Scanner:
             except Exception:
                 logger.warning(f"Pre-filter hatasi: {prefilter}")
 
+        # Likidite filtresi: sadece liquid_universe ile kesisim
+        if self._universe_builder is not None and self._config.liquidity.enabled:
+            liquid = set(self._universe_builder.get_liquid_symbols())
+            if liquid:
+                before = len(candidate_symbols)
+                candidate_symbols &= liquid
+                logger.info(
+                    f"Likidite filtresi: {before} aday → {len(candidate_symbols)} likit"
+                )
+
         logger.info(f"Toplam {len(candidate_symbols)} benzersiz aday bulundu")
 
         # Score each candidate in parallel
@@ -411,20 +429,28 @@ class Scanner:
         # Market regime check
         is_bull = self.check_market_regime()
 
-        # Get all symbols in universe
-        try:
-            index = bp.Index(universe)
-            all_symbols = index.components
-            if isinstance(all_symbols, list) and all_symbols:
-                all_symbols = [s["symbol"] if isinstance(s, dict) else str(s) for s in all_symbols]
-            else:
-                logger.error(f"Universe bilesenleri alinamadi: {universe}")
+        # Likit evren: UniverseBuilder'dan oku, yoksa fallback bp.Index(universe)
+        if self._universe_builder is not None and self._config.liquidity.enabled:
+            all_symbols = self._universe_builder.get_liquid_symbols()
+            source_label = "liquid_universe"
+        else:
+            try:
+                index = bp.Index(universe)
+                components = index.components
+                all_symbols = [
+                    s["symbol"] if isinstance(s, dict) else str(s)
+                    for s in (components or [])
+                ]
+            except Exception:
+                logger.exception(f"Universe yuklenemedi: {universe}")
                 return ScanResult(candidates=[], scanned_count=0, filtered_count=0)
-        except Exception:
-            logger.exception(f"Universe yuklenemedi: {universe}")
+            source_label = universe
+
+        if not all_symbols:
+            logger.error(f"Evren bos: {source_label}")
             return ScanResult(candidates=[], scanned_count=0, filtered_count=0)
 
-        logger.info(f"Deep scan basliyor: {len(all_symbols)} sembol ({universe})")
+        logger.info(f"Deep scan basliyor: {len(all_symbols)} sembol ({source_label})")
 
         # Parallel scoring
         candidates: list[ScoredCandidate] = []
