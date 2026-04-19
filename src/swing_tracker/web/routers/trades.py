@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from swing_tracker.web.dependencies import templates, get_repo, get_config
+from swing_tracker.web.price_cache import price_cache
 
 router = APIRouter(prefix="/trades")
 
@@ -22,16 +24,45 @@ async def trade_detail(request: Request, trade_id: int):
     if not trade:
         return HTMLResponse("<h1>Trade bulunamadi</h1>", status_code=404)
 
-    if trade.get("entry_reasons"):
-        try:
-            trade["entry_reasons"] = json.loads(trade["entry_reasons"])
-        except (json.JSONDecodeError, TypeError):
-            pass
-
     exits = repo.get_trade_exits(trade_id)
     exited_shares = sum(e["shares"] for e in exits)
     remaining_shares = trade.get("shares", 0) - exited_shares
     realized_pnl = sum(e.get("pnl", 0) or 0 for e in exits)
+
+    # Hedefler karti: giris'e gore SL/TP uzakligi (statik)
+    entry = trade.get("entry_price") or 0
+    sl = trade.get("stop_loss")
+    tp1 = trade.get("take_profit_1")
+    tp2 = trade.get("take_profit_2")
+    tp3 = trade.get("take_profit_3")
+    target_pcts = {
+        "sl": ((sl - entry) / entry * 100) if (entry and sl) else None,
+        "tp1": ((tp1 - entry) / entry * 100) if (entry and tp1) else None,
+        "tp2": ((tp2 - entry) / entry * 100) if (entry and tp2) else None,
+        "tp3": ((tp3 - entry) / entry * 100) if (entry and tp3) else None,
+    }
+
+    # TP lot dagilimi: 50/30/20 kurali (telegram /al + monitor.py ile ayni)
+    shares = int(trade.get("shares") or 0)
+    tp_lots = {
+        "tp1": int(shares * 0.50),
+        "tp2": int(shares * 0.30),
+        "tp3": int(shares * 0.20),
+    }
+
+    # Hold suresi
+    days_held: int | None = None
+    entry_date_raw = trade.get("entry_date")
+    if entry_date_raw:
+        try:
+            entry_dt = datetime.strptime(entry_date_raw[:10], "%Y-%m-%d")
+            if trade.get("status") == "closed" and trade.get("exit_date"):
+                end_dt = datetime.strptime(trade["exit_date"][:10], "%Y-%m-%d")
+            else:
+                end_dt = datetime.now(config.timezone).replace(tzinfo=None)
+            days_held = max(0, (end_dt - entry_dt).days)
+        except (ValueError, TypeError):
+            pass
 
     # Sinyal gecmisi
     signals = repo.get_recent_signals(limit=50)
@@ -58,9 +89,52 @@ async def trade_detail(request: Request, trade_id: int):
             "exited_shares": exited_shares,
             "realized_pnl": realized_pnl,
             "trade_signals": trade_signals,
+            "target_pcts": target_pcts,
+            "tp_lots": tp_lots,
+            "days_held": days_held,
             "now": now,
         },
     )
+
+
+@router.get("/{trade_id}/live")
+async def trade_live(trade_id: int):
+    """JSON endpoint: canli fiyat + unrealized P&L tek trade icin."""
+    repo = get_repo()
+    trade = repo.get_trade(trade_id)
+    if not trade:
+        return {"error": "not found"}
+
+    exits = repo.get_trade_exits(trade_id)
+    exited_shares = sum(e["shares"] for e in exits)
+    remaining = trade.get("shares", 0) - exited_shares
+    entry_price = trade.get("entry_price") or 0
+    symbol = trade["symbol"]
+
+    price = await asyncio.to_thread(price_cache.fetch_one, symbol)
+    if price is None:
+        return {
+            "current_price": None,
+            "unrealized": None,
+            "unrealized_pct": None,
+            "market_value": None,
+        }
+
+    if remaining > 0 and entry_price:
+        unrealized = round((price - entry_price) * remaining, 0)
+        unrealized_pct = round((price - entry_price) / entry_price * 100, 1)
+        market_value = round(price * remaining, 0)
+    else:
+        unrealized = None
+        unrealized_pct = None
+        market_value = None
+
+    return {
+        "current_price": round(price, 2),
+        "unrealized": unrealized,
+        "unrealized_pct": unrealized_pct,
+        "market_value": market_value,
+    }
 
 
 @router.post("/{trade_id}/exit")

@@ -12,7 +12,7 @@
 
 <!-- Baslik -->
 <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-    <div class="flex items-center gap-4">
+    <div class="flex flex-wrap items-center gap-3 sm:gap-4">
         <a href="/symbol/{{ trade.symbol }}" class="text-2xl font-bold text-txt-primary hover:text-accent transition-colors">{{ trade.symbol }}</a>
         <span class="px-2.5 py-0.5 rounded-full text-xs font-medium
             {% if trade.status == 'open' %}bg-positive-muted text-positive
@@ -26,6 +26,15 @@
             {% if trade.direction == 'long' %}bg-positive-muted text-positive
             {% else %}bg-negative-muted text-negative{% endif %}">
             {{ STATUS_TR.get(trade.direction, trade.direction|upper) }}
+        </span>
+        {% endif %}
+        {% if days_held is not none %}
+        <span class="text-xs text-txt-ghost font-medium">
+            {% if trade.status == 'closed' %}
+            {% if days_held == 0 %}gun ici kapandi{% else %}{{ days_held }} gunde kapandi{% endif %}
+            {% else %}
+            {% if days_held == 0 %}bugun acildi{% else %}{{ days_held }} gundur acik{% endif %}
+            {% endif %}
         </span>
         {% endif %}
     </div>
@@ -108,7 +117,12 @@
         <div class="space-y-3">
             <div class="flex justify-between items-center">
                 <span class="text-negative">Stop Loss</span>
-                <span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }} TL</span>
+                <span>
+                    <span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }} TL</span>
+                    {% if target_pcts.sl is not none %}
+                    <span class="text-txt-ghost text-xs ml-1 font-mono tabular-nums">({{ "%+.1f"|format(target_pcts.sl) }}%)</span>
+                    {% endif %}
+                </span>
             </div>
             {% if trade.entry_price and trade.stop_loss %}
             <div class="w-full h-1.5 bg-surface-sunken rounded-full overflow-hidden">
@@ -120,28 +134,70 @@
 
             <div class="border-t border-border-subtle pt-3"></div>
 
-            <div class="flex justify-between">
-                <span class="text-positive">TP1</span>
-                <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }} TL</span>
+            <div class="flex justify-between items-center">
+                <div>
+                    <span class="text-positive">TP1</span>
+                    {% if tp_lots.tp1 %}
+                    <span class="text-txt-ghost text-xs ml-1 font-mono tabular-nums">· {{ tp_lots.tp1 }} lot</span>
+                    {% endif %}
+                </div>
+                <span>
+                    <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }} TL</span>
+                    {% if target_pcts.tp1 is not none %}
+                    <span class="text-txt-ghost text-xs ml-1 font-mono tabular-nums">({{ "%+.1f"|format(target_pcts.tp1) }}%)</span>
+                    {% endif %}
+                </span>
             </div>
-            <div class="flex justify-between">
-                <span class="text-positive">TP2</span>
-                <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_2 or 0) }} TL</span>
+            <div class="flex justify-between items-center">
+                <div>
+                    <span class="text-positive">TP2</span>
+                    {% if tp_lots.tp2 %}
+                    <span class="text-txt-ghost text-xs ml-1 font-mono tabular-nums">· {{ tp_lots.tp2 }} lot</span>
+                    {% endif %}
+                </div>
+                <span>
+                    <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_2 or 0) }} TL</span>
+                    {% if target_pcts.tp2 is not none %}
+                    <span class="text-txt-ghost text-xs ml-1 font-mono tabular-nums">({{ "%+.1f"|format(target_pcts.tp2) }}%)</span>
+                    {% endif %}
+                </span>
             </div>
             {% if trade.take_profit_3 %}
-            <div class="flex justify-between">
-                <span class="text-positive">TP3</span>
-                <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_3) }} TL</span>
+            <div class="flex justify-between items-center">
+                <div>
+                    <span class="text-positive">TP3</span>
+                    {% if tp_lots.tp3 %}
+                    <span class="text-txt-ghost text-xs ml-1 font-mono tabular-nums">· {{ tp_lots.tp3 }} lot</span>
+                    {% endif %}
+                </div>
+                <span>
+                    <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_3) }} TL</span>
+                    {% if target_pcts.tp3 is not none %}
+                    <span class="text-txt-ghost text-xs ml-1 font-mono tabular-nums">({{ "%+.1f"|format(target_pcts.tp3) }}%)</span>
+                    {% endif %}
+                </span>
+            </div>
+            {% endif %}
+
+            {% if trade.status != 'closed' and trade.entry_price and trade.take_profit_1 %}
+            <div class="border-t border-border-subtle pt-3">
+                <div class="flex items-center justify-between mb-1.5 text-xs">
+                    <span id="tp-progress-title" class="text-txt-muted">Giris → TP1 ilerleme</span>
+                    <span id="tp1-progress-label" class="text-txt-ghost font-mono tabular-nums">—</span>
+                </div>
+                <div class="relative w-full h-1.5 bg-surface-sunken rounded-full overflow-hidden">
+                    <div id="tp1-progress-bar" class="h-full bg-positive/60 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
             </div>
             {% endif %}
         </div>
     </div>
 
-    <!-- Sonuc (acik/partial_exit trade'ler icin — kapali trade hero'da gosteriliyor) -->
+    <!-- Sonuc / Canli Durum (3. kart) -->
     <div class="bg-surface-raised rounded-lg border border-border-subtle p-5">
+        {% if trade.status == 'closed' %}
         <h3 class="text-sm font-medium text-txt-muted uppercase tracking-wide mb-4">Sonuc</h3>
         <div class="space-y-3">
-            {% if trade.status == 'closed' %}
             <div class="flex justify-between">
                 <span class="text-txt-muted">Cikis Ort.</span>
                 <span class="text-txt-primary font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.exit_price_avg or 0) }} TL</span>
@@ -165,41 +221,49 @@
                     {{ "%+.1f"|format(trade.realized_pnl_pct or 0) }}%
                 </span>
             </div>
-            {% else %}
-            <div class="flex justify-between">
-                <span class="text-txt-muted">Cikan Lot</span>
-                <span class="text-txt-primary font-mono tabular-nums">{{ exited_shares|int }} / {{ trade.shares|int }}</span>
-            </div>
-            <div class="flex justify-between">
-                <span class="text-txt-muted">Kalan Lot</span>
-                <span class="text-txt-primary font-mono tabular-nums font-medium">{{ remaining_shares|int }}</span>
-            </div>
-            {% if exits %}
-            <div class="border-t border-border-subtle pt-3"></div>
-            <div class="flex justify-between">
-                <span class="text-txt-muted">Realize K/Z</span>
-                <span class="text-xl font-bold font-mono tabular-nums
-                    {% if realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">
-                    {{ "{:+,.0f}".format(realized_pnl) }} TL
-                </span>
-            </div>
-            {% endif %}
-            {% endif %}
         </div>
+        {% else %}
+        <h3 class="text-sm font-medium text-txt-muted uppercase tracking-wide mb-4">Canli Durum</h3>
+        <div class="space-y-4">
+            <!-- Guncel Fiyat — buyuk -->
+            <div>
+                <p class="text-xs text-txt-muted mb-0.5">Guncel Fiyat</p>
+                <p id="live-current-price" class="text-2xl font-bold font-mono tabular-nums text-txt-ghost leading-none">
+                    <span class="text-sm">yukleniyor...</span>
+                </p>
+            </div>
+            <!-- Acik K/Z — vurgulu -->
+            <div>
+                <p class="text-xs text-txt-muted mb-0.5">Acik K/Z</p>
+                <p id="live-unrealized" class="text-xl font-bold font-mono tabular-nums text-txt-ghost leading-none">—</p>
+            </div>
+            <div class="border-t border-border-subtle pt-3 space-y-2">
+                <div class="flex justify-between text-sm">
+                    <span class="text-txt-muted">Piyasa Degeri</span>
+                    <span id="live-market-value" class="text-txt-secondary font-mono tabular-nums">—</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-txt-muted">Cikan Lot</span>
+                    <span class="text-txt-primary font-mono tabular-nums">{{ exited_shares|int }} / {{ trade.shares|int }}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-txt-muted">Kalan Lot</span>
+                    <span class="text-txt-primary font-mono tabular-nums font-medium">{{ remaining_shares|int }}</span>
+                </div>
+                {% if exits %}
+                <div class="flex justify-between text-sm">
+                    <span class="text-txt-muted">Realize K/Z</span>
+                    <span class="font-mono tabular-nums font-medium
+                        {% if realized_pnl >= 0 %}text-positive{% else %}text-negative{% endif %}">
+                        {{ "{:+,.0f}".format(realized_pnl) }} TL
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
-
-<!-- Giris Nedenleri -->
-{% if trade.entry_reasons is iterable and trade.entry_reasons is not string %}
-<div class="bg-surface-raised rounded-lg border border-border-subtle p-5 mb-6">
-    <h3 class="text-sm font-medium text-txt-muted uppercase tracking-wide mb-3">Giris Nedenleri</h3>
-    <div class="flex flex-wrap gap-2">
-        {% for reason in trade.entry_reasons %}
-        <span class="px-3 py-1 rounded-full bg-surface-sunken text-sm text-txt-secondary">{{ reason }}</span>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
 
 <!-- Exit Gecmisi -->
 <div class="mb-6">
@@ -433,9 +497,18 @@
 
 <script>
 const ENTRY_PRICE = {{ trade.entry_price or 0 }};
+const TRADE_ID = {{ trade.id }};
+const TP1_PRICE = {{ trade.take_profit_1|tojson }};
+const TP2_PRICE = {{ trade.take_profit_2|tojson }};
+const TP3_PRICE = {{ trade.take_profit_3|tojson }};
+let _currentPrice = null;
 
 function openExitModal() {
     document.getElementById('exitModal').classList.remove('hidden');
+    const priceInput = document.getElementById('exitPrice');
+    if (priceInput && !priceInput.value && _currentPrice) {
+        priceInput.value = _currentPrice.toFixed(2);
+    }
     updateExitPnl();
 }
 
@@ -466,6 +539,95 @@ function updateExitPnl() {
     const color = pnl >= 0 ? 'text-positive' : 'text-negative';
     pnlEl.className = 'font-mono tabular-nums font-bold ' + color;
     pctEl.className = 'font-mono tabular-nums ' + color;
+}
+
+/* Canli durum fetch */
+fetch('/trades/' + TRADE_ID + '/live')
+    .then(r => r.json())
+    .then(data => {
+        const priceEl = document.getElementById('live-current-price');
+
+        if (data.current_price == null) {
+            if (priceEl) priceEl.innerHTML = '<span class="text-sm text-txt-ghost">fiyat alinamadi</span>';
+            return;
+        }
+
+        _currentPrice = data.current_price;
+
+        if (priceEl) {
+            priceEl.className = 'text-2xl font-bold font-mono tabular-nums text-txt-primary leading-none';
+            priceEl.innerHTML = data.current_price.toFixed(2) +
+                ' <span class="text-sm font-normal text-txt-ghost">TL</span>';
+        }
+
+        const pnlEl = document.getElementById('live-unrealized');
+        if (pnlEl && data.unrealized !== null) {
+            const cls = data.unrealized >= 0 ? 'text-positive' : 'text-negative';
+            const sign = data.unrealized >= 0 ? '+' : '';
+            const signPct = data.unrealized_pct >= 0 ? '+' : '';
+            pnlEl.className = 'text-xl font-bold font-mono tabular-nums leading-none ' + cls;
+            pnlEl.innerHTML = sign + data.unrealized.toLocaleString('tr-TR') + ' TL ' +
+                '<span class="text-xs font-medium">(' + signPct + data.unrealized_pct.toFixed(1) + '%)</span>';
+        }
+
+        const mvEl = document.getElementById('live-market-value');
+        if (mvEl && data.market_value !== null) {
+            mvEl.textContent = data.market_value.toLocaleString('tr-TR') + ' TL';
+        }
+
+        /* Dinamik sonraki hedef progress bar */
+        updateProgressBar(data.current_price);
+    })
+    .catch(() => {});
+
+function updateProgressBar(current) {
+    const bar = document.getElementById('tp1-progress-bar');
+    const label = document.getElementById('tp1-progress-label');
+    const title = document.getElementById('tp-progress-title');
+    if (!bar || !ENTRY_PRICE || !TP1_PRICE) return;
+
+    /* Giris altindaysa: Giris -> TP1 cubugunu kirmizi doldur */
+    if (current < ENTRY_PRICE) {
+        const pct = (current - ENTRY_PRICE) / (TP1_PRICE - ENTRY_PRICE) * 100;
+        bar.className = 'h-full bg-negative/60 rounded-full transition-all duration-500';
+        bar.style.width = Math.min(100, Math.abs(pct)) + '%';
+        if (title) title.textContent = 'Giris → TP1 ilerleme';
+        if (label) {
+            label.className = 'font-mono tabular-nums text-negative';
+            label.textContent = '%' + pct.toFixed(0);
+        }
+        return;
+    }
+
+    /* Sonraki ulasilmamis hedefi bul */
+    let from, to, fromLabel, toLabel;
+    if (current < TP1_PRICE) {
+        from = ENTRY_PRICE; to = TP1_PRICE; fromLabel = 'Giris'; toLabel = 'TP1';
+    } else if (TP2_PRICE && current < TP2_PRICE) {
+        from = TP1_PRICE; to = TP2_PRICE; fromLabel = 'TP1'; toLabel = 'TP2';
+    } else if (TP3_PRICE && current < TP3_PRICE) {
+        from = TP2_PRICE; to = TP3_PRICE; fromLabel = 'TP2'; toLabel = 'TP3';
+    } else {
+        /* Tum hedefler asildi */
+        bar.className = 'h-full bg-positive rounded-full transition-all duration-500';
+        bar.style.width = '100%';
+        if (title) title.textContent = 'Tum hedefler asildi';
+        if (label) {
+            label.className = 'font-mono tabular-nums text-positive font-medium';
+            label.textContent = '✓';
+        }
+        return;
+    }
+
+    const pct = (current - from) / (to - from) * 100;
+    const clamped = Math.max(0, Math.min(100, pct));
+    bar.className = 'h-full bg-positive/60 rounded-full transition-all duration-500';
+    bar.style.width = clamped + '%';
+    if (title) title.textContent = fromLabel + ' → ' + toLabel + ' ilerleme';
+    if (label) {
+        label.className = 'font-mono tabular-nums text-txt-muted';
+        label.textContent = '%' + pct.toFixed(0);
+    }
 }
 </script>
 {% endif %}

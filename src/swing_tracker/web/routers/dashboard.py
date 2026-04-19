@@ -9,9 +9,11 @@ from datetime import datetime
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from swing_tracker.web.auto_setup import compute_setup
 from swing_tracker.web.dependencies import templates, get_repo, get_config
 from swing_tracker.web.helpers import calc_capital_summary
 from swing_tracker.web.price_cache import price_cache
+from swing_tracker.web.regime_cache import get_market_regime
 
 router = APIRouter()
 
@@ -24,11 +26,6 @@ async def dashboard(request: Request):
     # Acik pozisyonlar
     open_trades = repo.get_open_trades()
     for trade in open_trades:
-        if trade.get("entry_reasons"):
-            try:
-                trade["entry_reasons"] = json.loads(trade["entry_reasons"])
-            except (json.JSONDecodeError, TypeError):
-                pass
         exits = repo.get_trade_exits(trade["id"])
         exited_shares = sum(e["shares"] for e in exits)
         trade["remaining_shares"] = trade.get("shares", 0) - exited_shares
@@ -64,12 +61,20 @@ async def dashboard(request: Request):
 
 @router.get("/api/prices")
 async def live_prices():
-    """JSON endpoint: live prices + unrealized P&L for open trades."""
+    """JSON endpoint: live prices + unrealized P&L for open trades + piyasa rejim."""
     repo = get_repo()
     open_trades = repo.get_open_trades()
 
+    market_bullish = await asyncio.to_thread(get_market_regime)
+
     if not open_trades:
-        return {"trades": [], "total_unrealized": 0, "total_market_value": 0, "live_portfolio": 0}
+        return {
+            "trades": [],
+            "total_unrealized": 0,
+            "total_market_value": 0,
+            "live_portfolio": 0,
+            "market_bullish": market_bullish,
+        }
 
     for trade in open_trades:
         exits = repo.get_trade_exits(trade["id"])
@@ -116,7 +121,17 @@ async def live_prices():
         "total_unrealized": round(total_unrealized, 0),
         "total_market_value": round(total_market_value, 0),
         "live_portfolio": live_portfolio,
+        "market_bullish": market_bullish,
     }
+
+
+@router.get("/api/auto-setup")
+async def auto_setup(symbol: str, price: float | None = None):
+    """ATR tabanli SL/TP hesap — alim modallarindaki otomatik doldurma icin."""
+    result = await asyncio.to_thread(compute_setup, symbol, price)
+    if result is None:
+        return {"ok": False, "error": "hesaplanamadi"}
+    return {"ok": True, **result}
 
 
 @router.post("/cash/add")

@@ -8,7 +8,10 @@
 <!-- Hero: Portfoy Ozeti -->
 <div class="mb-6">
     <div class="mb-3">
-        <p class="text-xs font-medium text-txt-muted uppercase tracking-wide">Toplam Portfoy</p>
+        <div class="flex items-center gap-2 mb-0.5">
+            <p class="text-xs font-medium text-txt-muted uppercase tracking-wide">Toplam Portfoy</p>
+            <span id="market-regime-badge" class="text-xs text-txt-ghost font-medium">•</span>
+        </div>
         <p class="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-txt-primary">
             <span id="live-portfolio-value">
                 {% if open_trades %}
@@ -73,7 +76,7 @@
     <div class="lg:col-span-2">
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-base font-semibold text-txt-primary">Acik Pozisyonlar</h2>
-            <button onclick="document.getElementById('manualBuyModal').classList.remove('hidden')"
+            <button onclick="openBuyModal()"
                 class="px-3 py-1 rounded bg-positive/80 hover:bg-positive text-txt-primary text-xs font-medium transition-colors">
                 + Manuel Alis
             </button>
@@ -118,10 +121,18 @@
                         <p class="text-txt-primary font-mono tabular-nums font-medium">{{ trade.remaining_shares|int }} <span class="text-txt-ghost">/ {{ trade.shares|int }}</span></p>
                     </div>
                     <div>
-                        <span class="text-txt-muted text-xs">SL / TP1</span>
-                        <p><span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }}</span>
-                        <span class="text-txt-ghost">/</span>
-                        <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }}</span></p>
+                        <span class="text-txt-muted text-xs">SL / TP1 / TP2</span>
+                        <p class="leading-tight">
+                            <span class="text-negative font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.stop_loss or 0) }}</span>
+                            <span class="text-txt-ghost">/</span>
+                            <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_1 or 0) }}</span>
+                            <span class="text-txt-ghost">/</span>
+                            {% if trade.take_profit_2 %}
+                            <span class="text-positive font-mono tabular-nums font-medium">{{ "%.2f"|format(trade.take_profit_2) }}</span>
+                            {% else %}
+                            <span class="text-txt-ghost font-mono">—</span>
+                            {% endif %}
+                        </p>
                     </div>
                     <div id="trade-unrealized-{{ trade.id }}">
                         <span class="text-txt-muted text-xs">Acik K/Z</span>
@@ -208,73 +219,26 @@
     </div>
 </div>
 
-<!-- Manuel Alis Modal -->
-<div id="manualBuyModal" class="fixed inset-0 z-50 hidden">
-    <div class="absolute inset-0 bg-black/60" onclick="document.getElementById('manualBuyModal').classList.add('hidden')"></div>
-    <div class="absolute inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-md overflow-y-auto max-h-[calc(100vh-2rem)]">
-        <div class="bg-surface-raised rounded-lg border border-border shadow-2xl shadow-black/50 p-6">
-            <div class="flex items-center justify-between mb-5">
-                <h3 class="text-lg font-semibold text-txt-primary">Manuel Alis</h3>
-                <button onclick="document.getElementById('manualBuyModal').classList.add('hidden')" class="text-txt-muted hover:text-txt-primary text-xl">&times;</button>
-            </div>
-
-            <form action="/signals/buy" method="post">
-                <input type="hidden" name="signal_score" value="0">
-                <input type="hidden" name="reasons" value="Manuel giris">
-
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-xs text-txt-muted mb-1">Sembol</label>
-                        <input type="text" name="symbol" required placeholder="THYAO"
-                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none uppercase">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-txt-muted mb-1">Giris Fiyati (TL)</label>
-                        <input type="number" name="entry_price" id="manualPrice" step="0.01" required
-                            oninput="updateManualCost()"
-                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-txt-muted mb-1">Lot</label>
-                        <input type="number" name="shares" id="manualShares" step="1" min="1" required
-                            oninput="updateManualCost()"
-                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none">
-                    </div>
-                    <div class="bg-surface-sunken rounded p-3 text-sm">
-                        <div class="flex justify-between text-txt-muted">
-                            <span>Toplam Maliyet</span>
-                            <span id="manualCost" class="text-txt-primary font-mono tabular-nums font-medium">0 TL</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex gap-3 mt-6">
-                    <button type="button" onclick="document.getElementById('manualBuyModal').classList.add('hidden')"
-                        class="flex-1 px-4 py-2 rounded-lg bg-surface-sunken hover:bg-border text-txt-secondary text-sm font-medium transition-colors">
-                        Iptal
-                    </button>
-                    <button type="submit"
-                        class="flex-1 px-4 py-2 rounded-lg bg-positive hover:bg-positive/80 text-txt-primary text-sm font-bold transition-colors">
-                        Pozisyon Ac
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <script>
-function updateManualCost() {
-    const price = parseFloat(document.getElementById('manualPrice').value) || 0;
-    const shares = parseInt(document.getElementById('manualShares').value) || 0;
-    document.getElementById('manualCost').textContent = (price * shares).toLocaleString('tr-TR') + ' TL';
-}
-
-{% if open_trades %}
-/* Canli fiyat yukleme */
+/* Canli veri yukleme: piyasa rejim + fiyat/pnl (acik pozisyon varsa) */
 fetch('/api/prices')
     .then(r => r.json())
     .then(data => {
+        /* Piyasa rejim rozeti */
+        const regimeEl = document.getElementById('market-regime-badge');
+        if (regimeEl) {
+            if (data.market_bullish === true) {
+                regimeEl.className = 'text-xs font-medium text-positive';
+                regimeEl.textContent = '🟢 Boga';
+            } else if (data.market_bullish === false) {
+                regimeEl.className = 'text-xs font-medium text-negative';
+                regimeEl.textContent = '🔴 Ayi';
+            } else {
+                regimeEl.className = 'text-xs font-medium text-txt-ghost';
+                regimeEl.textContent = '—';
+            }
+        }
+
         if (!data.trades || !data.trades.length) return;
 
         /* Hero: toplam portfoy */
@@ -339,6 +303,5 @@ fetch('/api/prices')
         });
     })
     .catch(() => {});
-{% endif %}
 </script>
 {% endblock %}
