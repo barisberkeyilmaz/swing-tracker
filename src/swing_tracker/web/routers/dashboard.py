@@ -9,6 +9,7 @@ from datetime import datetime
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from swing_tracker.web.auto_setup import compute_setup
 from swing_tracker.web.dependencies import templates, get_repo, get_config
 from swing_tracker.web.helpers import calc_capital_summary
 from swing_tracker.web.price_cache import price_cache
@@ -122,6 +123,15 @@ async def live_prices():
         "live_portfolio": live_portfolio,
         "market_bullish": market_bullish,
     }
+
+
+@router.get("/api/auto-setup")
+async def auto_setup(symbol: str, price: float | None = None):
+    """ATR tabanli SL/TP hesap — alim modallarindaki otomatik doldurma icin."""
+    result = await asyncio.to_thread(compute_setup, symbol, price)
+    if result is None:
+        return {"ok": False, "error": "hesaplanamadi"}
+    return {"ok": True, **result}
 
 
 @router.post("/cash/add")

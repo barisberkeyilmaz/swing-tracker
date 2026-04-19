@@ -44,8 +44,12 @@ async def buy_from_signal(
     entry_price: float = Form(...),
     shares: int = Form(...),
     signal_score: int = Form(0),
+    stop_loss: float | None = Form(None),
+    take_profit_1: float | None = Form(None),
+    take_profit_2: float | None = Form(None),
+    take_profit_3: float | None = Form(None),
 ):
-    """Sinyalden pozisyon ac ve nakitten dus."""
+    """Sinyalden veya manuel pozisyon ac; nakitten dus."""
     repo = get_repo()
     today = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -57,6 +61,10 @@ async def buy_from_signal(
         entry_date=today,
         shares=shares,
         signal_score=signal_score,
+        stop_loss=stop_loss,
+        take_profit_1=take_profit_1,
+        take_profit_2=take_profit_2,
+        take_profit_3=take_profit_3,
     )
 
     # Nakitten dus

@@ -139,6 +139,187 @@
         </div>
     </nav>
 
+<!-- Ortak Alim Modal (Manuel Alis + Sinyal "Al") -->
+<div id="buyModal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60" onclick="closeBuyModal()"></div>
+    <div class="absolute inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-md overflow-y-auto max-h-[calc(100vh-2rem)]">
+        <div class="bg-surface-raised rounded-lg border border-border shadow-2xl shadow-black/50 p-6">
+            <div class="flex items-center justify-between mb-5">
+                <h3 id="buyModalTitle" class="text-lg font-semibold text-txt-primary">Manuel Alis</h3>
+                <button onclick="closeBuyModal()" class="text-txt-muted hover:text-txt-primary text-xl">&times;</button>
+            </div>
+
+            <form action="/signals/buy" method="post">
+                <input type="hidden" name="signal_score" id="buySignalScore" value="0">
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs text-txt-muted mb-1">Sembol</label>
+                        <input type="text" name="symbol" id="buySymbol" required placeholder="THYAO"
+                            oninput="this.value = this.value.toUpperCase()"
+                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none uppercase">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-txt-muted mb-1">Giris Fiyati (TL)</label>
+                        <input type="number" name="entry_price" id="buyPrice" step="0.01" required
+                            oninput="updateBuyCost()"
+                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-txt-muted mb-1">Lot</label>
+                        <input type="number" name="shares" id="buyShares" step="1" min="1" required
+                            oninput="updateBuyCost()"
+                            class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none">
+                    </div>
+
+                    <div class="border-t border-border-subtle pt-3">
+                        <div class="flex items-center justify-between mb-2 gap-2">
+                            <p class="text-xs font-medium text-txt-muted uppercase tracking-wide">Hedefler</p>
+                            <div class="flex items-center gap-2">
+                                <span id="buyAutoStatus" class="text-xs text-txt-ghost"></span>
+                                <button type="button" onclick="fetchBuySetup()"
+                                    class="px-2.5 py-1 rounded text-xs font-medium bg-accent/10 hover:bg-accent/20 text-accent transition-colors whitespace-nowrap">
+                                    ATR'den hesapla
+                                </button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-txt-muted mb-1">Stop Loss</label>
+                                <input type="number" name="stop_loss" id="buySL" step="0.01" placeholder="—"
+                                    class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-negative focus:ring-1 focus:ring-negative/30 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-txt-muted mb-1">TP1</label>
+                                <input type="number" name="take_profit_1" id="buyTP1" step="0.01" placeholder="—"
+                                    class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-positive focus:ring-1 focus:ring-positive/30 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-txt-muted mb-1">TP2</label>
+                                <input type="number" name="take_profit_2" id="buyTP2" step="0.01" placeholder="—"
+                                    class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-positive focus:ring-1 focus:ring-positive/30 focus:outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-txt-muted mb-1">TP3</label>
+                                <input type="number" name="take_profit_3" id="buyTP3" step="0.01" placeholder="—"
+                                    class="w-full px-3 py-2 rounded-lg bg-surface-sunken text-txt-primary border border-border focus:border-positive focus:ring-1 focus:ring-positive/30 focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface-sunken rounded p-3 text-sm">
+                        <div class="flex justify-between text-txt-muted">
+                            <span>Toplam Maliyet</span>
+                            <span id="buyTotalCost" class="text-txt-primary font-mono tabular-nums font-medium">0 TL</span>
+                        </div>
+                        <div class="flex justify-between text-txt-ghost mt-1 hidden" id="buyScoreRow">
+                            <span>Sinyal Skoru</span>
+                            <span id="buyModalScore" class="text-txt-secondary font-mono"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 mt-6">
+                    <button type="button" onclick="closeBuyModal()"
+                        class="flex-1 px-4 py-2 rounded-lg bg-surface-sunken hover:bg-border text-txt-secondary text-sm font-medium transition-colors">
+                        Iptal
+                    </button>
+                    <button type="submit"
+                        class="flex-1 px-4 py-2 rounded-lg bg-positive hover:bg-positive/80 text-txt-primary text-sm font-bold transition-colors">
+                        Pozisyon Ac
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openBuyModal(symbol, price, score) {
+    symbol = symbol || '';
+    score = score || 0;
+    document.getElementById('buySymbol').value = symbol;
+    document.getElementById('buyPrice').value = (price && price > 0) ? price.toFixed(2) : '';
+    document.getElementById('buyShares').value = '';
+    document.getElementById('buySignalScore').value = score;
+    document.getElementById('buySL').value = '';
+    document.getElementById('buyTP1').value = '';
+    document.getElementById('buyTP2').value = '';
+    document.getElementById('buyTP3').value = '';
+    document.getElementById('buyTotalCost').textContent = '0 TL';
+    const status = document.getElementById('buyAutoStatus');
+    status.textContent = '';
+    status.className = 'text-xs text-txt-ghost';
+
+    document.getElementById('buyModalTitle').textContent = symbol ? (symbol + ' — Pozisyon Ac') : 'Manuel Alis';
+    const scoreRow = document.getElementById('buyScoreRow');
+    if (score > 0) {
+        scoreRow.classList.remove('hidden');
+        document.getElementById('buyModalScore').textContent = score;
+    } else {
+        scoreRow.classList.add('hidden');
+    }
+
+    document.getElementById('buyModal').classList.remove('hidden');
+}
+
+function closeBuyModal() {
+    document.getElementById('buyModal').classList.add('hidden');
+}
+
+function updateBuyCost() {
+    const price = parseFloat(document.getElementById('buyPrice').value) || 0;
+    const shares = parseInt(document.getElementById('buyShares').value) || 0;
+    document.getElementById('buyTotalCost').textContent = (price * shares).toLocaleString('tr-TR') + ' TL';
+}
+
+let _buyFetchController = null;
+
+function fetchBuySetup() {
+    const status = document.getElementById('buyAutoStatus');
+    const symbol = (document.getElementById('buySymbol').value || '').trim().toUpperCase();
+    if (!symbol) {
+        status.textContent = 'Once sembol girin';
+        status.className = 'text-xs text-warning';
+        return;
+    }
+
+    const priceInput = document.getElementById('buyPrice');
+    const priceVal = parseFloat(priceInput.value);
+    let url = '/api/auto-setup?symbol=' + encodeURIComponent(symbol);
+    if (priceVal > 0) url += '&price=' + priceVal;
+
+    if (_buyFetchController) _buyFetchController.abort();
+    _buyFetchController = new AbortController();
+
+    status.textContent = 'hesaplaniyor...';
+    status.className = 'text-xs text-txt-ghost';
+
+    fetch(url, { signal: _buyFetchController.signal })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.ok) {
+                status.textContent = 'ATR hesaplanamadi';
+                status.className = 'text-xs text-warning';
+                return;
+            }
+            if (!priceInput.value) priceInput.value = data.entry.toFixed(2);
+            document.getElementById('buySL').value = data.sl.toFixed(2);
+            document.getElementById('buyTP1').value = data.tp1.toFixed(2);
+            document.getElementById('buyTP2').value = data.tp2.toFixed(2);
+            document.getElementById('buyTP3').value = data.tp3.toFixed(2);
+            status.textContent = 'ATR: ' + data.atr.toFixed(2) + ' · R/R: ' + data.rr;
+            status.className = 'text-xs text-txt-muted';
+            updateBuyCost();
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') return;
+            status.textContent = 'hesaplama hatasi';
+            status.className = 'text-xs text-negative';
+        });
+}
+</script>
+
 <script>
 /* Double-submit protection */
 document.addEventListener('submit', function(e) {
