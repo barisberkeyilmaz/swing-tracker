@@ -18,7 +18,11 @@ notify_tp_sl = true
 notify_daily_report = true
 
 [scanner]
-universe = "XU100"
+# Tarama evreni: XTUMY = tum BIST (~467 sembol). Likidite filtresi sonrasi
+# liquid_universe tablosundan filtre alir. Tablo bossa fallback_universe.
+universe = "XTUMY"
+# Piyasa rejim gostergesi (SMA karsilastirmasi icin). BIST100 olarak sabit.
+market_regime_index = "XU100"
 quick_scan_interval_minutes = 30
 deep_scan_time = "18:30"
 prefilters = [
@@ -39,6 +43,17 @@ hourly_ttl_minutes = 15
 regime_ttl_minutes = 30
 # TradingView 429 (rate limit) icin 5 guvenli; 10 sik 429 yiyor.
 scanner_max_workers = 5
+
+[liquidity]
+# Agresif profil: kucuk tahta firsatlari icin dusuk esik, YIP dahil.
+enabled = true
+min_daily_volume_tl = 10_000_000     # 10M TL medyan gunluk hacim
+min_volume_days = 15                 # son 20 gunden en az 15'inde veri
+excluded_markets = ["GOZALTI PAZARI"] # YIP dahil, gozalti pazari disla
+build_time = "18:15"                 # deep_scan'den 15dk once
+fallback_universe = "XU100"          # tablo bossa bu evrene dus
+market_cache_ttl_days = 7            # KAP market bilgisi 7 gun cache
+builder_max_workers = 5
 
 [backtest]
 symbols = [

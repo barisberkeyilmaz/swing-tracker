@@ -429,3 +429,71 @@ class Repository:
             (symbol, interval, last_fetch_at, last_bar_ts, bar_count),
         )
         self._conn.commit()
+
+    # ── Liquid Universe ──
+
+    def upsert_liquid_symbol(
+        self,
+        symbol: str,
+        market: str | None,
+        median_volume_tl: float | None,
+        volume_days: int,
+        last_close: float | None,
+        market_cap_tl: float | None,
+    ) -> None:
+        self._conn.execute(
+            """INSERT INTO liquid_universe
+               (symbol, market, median_volume_tl, volume_days, last_close, market_cap_tl, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(symbol) DO UPDATE SET
+                 market = excluded.market,
+                 median_volume_tl = excluded.median_volume_tl,
+                 volume_days = excluded.volume_days,
+                 last_close = excluded.last_close,
+                 market_cap_tl = excluded.market_cap_tl,
+                 updated_at = datetime('now')""",
+            (symbol, market, median_volume_tl, volume_days, last_close, market_cap_tl),
+        )
+        self._conn.commit()
+
+    def get_liquid_symbols(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM liquid_universe ORDER BY median_volume_tl DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_liquid_symbols_not_in(self, keep: list[str]) -> int:
+        if not keep:
+            cur = self._conn.execute("DELETE FROM liquid_universe")
+        else:
+            placeholders = ",".join("?" for _ in keep)
+            cur = self._conn.execute(
+                f"DELETE FROM liquid_universe WHERE symbol NOT IN ({placeholders})",
+                tuple(keep),
+            )
+        self._conn.commit()
+        return cur.rowcount
+
+    def get_symbol_market(self, symbol: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM symbol_market_cache WHERE symbol = ?", (symbol,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_symbol_market(
+        self,
+        symbol: str,
+        market: str | None,
+        sector: str | None,
+        fetched_at: str,
+    ) -> None:
+        self._conn.execute(
+            """INSERT INTO symbol_market_cache (symbol, market, sector, fetched_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(symbol) DO UPDATE SET
+                 market = excluded.market,
+                 sector = excluded.sector,
+                 fetched_at = excluded.fetched_at""",
+            (symbol, market, sector, fetched_at),
+        )
+        self._conn.commit()

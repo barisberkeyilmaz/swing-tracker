@@ -17,6 +17,7 @@ from swing_tracker.config import Config, load_config
 from swing_tracker.core.monitor import Monitor
 from swing_tracker.core.portfolio import PortfolioManager
 from swing_tracker.core.scanner import Scanner
+from swing_tracker.core.universe import UniverseBuilder
 from swing_tracker.db.connection import get_connection
 from swing_tracker.db.repository import Repository
 from swing_tracker.bot.telegram import TelegramNotifier
@@ -27,6 +28,7 @@ logger = logging.getLogger("swing_tracker")
 _scheduler: BackgroundScheduler | None = None
 _notifier: TelegramNotifier | None = None
 _scanner: Scanner | None = None
+_universe_builder: UniverseBuilder | None = None
 
 
 def setup_logging(config: Config) -> None:
@@ -126,6 +128,15 @@ def job_daily_snapshot(portfolio: PortfolioManager):
         logger.exception("Snapshot hatasi")
 
 
+def job_build_universe(builder: UniverseBuilder):
+    """Likit evren yeniden ins'a: deep_scan'den 15dk once."""
+    try:
+        total, kept = builder.build()
+        logger.info(f"Universe build: {total} aday → {kept} likit sembol")
+    except Exception:
+        logger.exception("Universe build hatasi")
+
+
 # ── Main ──
 
 
@@ -136,11 +147,13 @@ def shutdown(signum=None, frame=None):
         _scheduler.shutdown(wait=False)
     if _scanner is not None:
         _scanner.close()
+    if _universe_builder is not None:
+        _universe_builder.close()
     sys.exit(0)
 
 
 def main():
-    global _scheduler, _notifier, _scanner
+    global _scheduler, _notifier, _scanner, _universe_builder
 
     # Load config
     config = load_config()
@@ -160,7 +173,10 @@ def main():
     # Initialize components
     portfolio = PortfolioManager(repo, config)
 
-    scanner = Scanner(repo, config)
+    universe_builder = UniverseBuilder(repo, config)
+    _universe_builder = universe_builder
+
+    scanner = Scanner(repo, config, universe_builder=universe_builder)
     _scanner = scanner
     monitor = Monitor(repo, config)
     _notifier = TelegramNotifier(config.telegram)
@@ -237,6 +253,22 @@ def main():
         id="daily_snapshot",
         name="Daily Snapshot",
     )
+
+    # Universe build: Mon-Fri, deep_scan'den 15dk once
+    if config.liquidity.enabled:
+        build_hour, build_minute = config.liquidity.build_time.split(":")
+        _scheduler.add_job(
+            job_build_universe,
+            CronTrigger(
+                day_of_week="mon-fri",
+                hour=int(build_hour),
+                minute=int(build_minute),
+                timezone=tz,
+            ),
+            args=[universe_builder],
+            id="build_universe",
+            name="Universe Builder",
+        )
 
     _scheduler.start()
 

@@ -395,9 +395,13 @@ class TelegramNotifier:
             result = self.scanner.run_quick_scan()
 
             if not result.market_bullish:
+                regime_index = (
+                    self.scanner._config.scanner.market_regime_index
+                    if self.scanner else "XU100"
+                )
                 await update.message.reply_text(
-                    "🔴 Ayi piyasasi — sinyal aramiyor.\n"
-                    "XU100 SMA100'un altinda."
+                    f"🔴 Ayi piyasasi — sinyal aramiyor.\n"
+                    f"{regime_index} SMA100'un altinda."
                 )
                 return
 
@@ -857,13 +861,30 @@ class TelegramNotifier:
         if usd_text:
             price_line += f" ({usd_text})"
 
+        # Pazar segmenti (KAP market cache'den)
+        market_label = ""
+        yip_warning = ""
+        if self.repo is not None:
+            market_info = self.repo.get_symbol_market(candidate.symbol)
+            if market_info and market_info.get("market"):
+                market = market_info["market"]
+                market_label = f" <i>({market})</i>"
+                if "YAKIN IZLEME" in market.upper():
+                    yip_warning = (
+                        "⚠️ <b>YIP - Tek fiyat:</b> işlem sadece belirli seanslarda "
+                        "eşleşir, anlık emir girilemez.\n"
+                    )
+
         text = (
-            f"🟢 <b>AL SiNYALi: {candidate.symbol}</b>\n"
+            f"🟢 <b>AL SiNYALi: {candidate.symbol}</b>{market_label}\n"
             f"\n"
             f"{price_line}\n"
             f"Skor: [{score_bar}] {score}/8\n"
             f"Sinyaller: {reasons_text}\n"
         )
+
+        if yip_warning:
+            text += yip_warning
 
         if candidate.usd_trend_ok is False:
             text += "⚠️ USD bazinda trend zayif — TL deger kaybi kaynakli olabilir\n"
