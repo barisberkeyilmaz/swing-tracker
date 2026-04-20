@@ -135,8 +135,14 @@ def get_ohlcv(
     fetch_fn: FetchFn | None = None,
     now: datetime | None = None,
     ttl_override_minutes: int | None = None,
+    min_bars: int = 0,
 ) -> pd.DataFrame | None:
-    """Return OHLCV DataFrame for (symbol, interval), using cache when possible."""
+    """Return OHLCV DataFrame for (symbol, interval), using cache when possible.
+
+    `min_bars`: caller requires at least this many bars. If cache is fresh but
+    contains fewer bars (e.g. previous caller used a shorter `period`), we
+    treat the entry as a miss and refetch the full `period`.
+    """
     fn = fetch_fn or _default_fetch
 
     if not cache_cfg.enabled:
@@ -146,12 +152,15 @@ def get_ohlcv(
     ttl = ttl_override_minutes if ttl_override_minutes is not None else _ttl_minutes(interval, cache_cfg)
     meta = repo.get_ohlcv_meta(symbol, interval)
 
-    if meta is None:
+    def _full_fetch_and_store() -> pd.DataFrame | None:
         df = fn(symbol, period, interval)
         if df is None or df.empty:
             return None
         _write_df(symbol, interval, df, repo, now)
         return df
+
+    if meta is None:
+        return _full_fetch_and_store()
 
     try:
         last_fetch = datetime.fromisoformat(meta["last_fetch_at"])
@@ -159,21 +168,28 @@ def get_ohlcv(
         last_fetch = datetime.min
 
     age_min = (now - last_fetch).total_seconds() / 60.0
+    cached_count = int(meta.get("bar_count") or 0)
 
-    if age_min < ttl:
+    if age_min < ttl and cached_count >= min_bars:
         cached = repo.get_cached_ohlcv(symbol, interval)
         df = _bars_to_df(cached)
-        if df is not None and not df.empty:
+        if df is not None and not df.empty and len(df) >= min_bars:
             return df
-        # Cache meta present but no bars — treat as miss.
+        # Cache meta present but bars missing or insufficient — full refresh.
 
-    # Stale or empty cache rows: incremental refresh.
+    # Insufficient bars (fresh cache but period grew) → full re-fetch with period.
+    if cached_count < min_bars:
+        full = _full_fetch_and_store()
+        if full is not None and len(full) >= min_bars:
+            return full
+        # Full fetch failed or still short — fall back to cache content.
+
+    # Stale or insufficient cache rows: incremental refresh window.
     tail = _STALE_WINDOW.get(interval, period)
     tail_df = fn(symbol, tail, interval)
     if tail_df is not None and not tail_df.empty:
         _write_df(symbol, interval, tail_df, repo, now)
     else:
-        # Fetch failed — serve stale cache if we have anything.
         logger.warning(f"{symbol}/{interval}: stale refresh fetch bosu dondu, cache servis ediliyor")
 
     cached = repo.get_cached_ohlcv(symbol, interval)
