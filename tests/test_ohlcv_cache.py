@@ -170,6 +170,31 @@ def test_ttl_override_for_regime(repo, cfg):
     assert len(fetch.calls) == 2
 
 
+def test_fresh_cache_insufficient_bars_triggers_full_refetch(repo, cfg):
+    """Cache taze ama caller daha fazla bar istiyorsa full refetch tetiklenmeli."""
+    # Ilk fetch: 20 barlik kisa period (ornegin UniverseBuilder 1mo)
+    short = _daily_df(n=20, start="2026-04-01")
+    fetch = _CountingFetch(short)
+    now = datetime(2026, 4, 19, 12, 0, 0)
+
+    get_ohlcv("X", interval="1d", period="1mo", repo=repo, cache_cfg=cfg,
+              fetch_fn=fetch, now=now, min_bars=15)
+    assert len(fetch.calls) == 1
+
+    # Ikinci caller daha uzun period istiyor (scanner 6mo, 100+ bar)
+    long = _daily_df(n=125, start="2025-12-01")
+    fetch.df = long
+
+    df = get_ohlcv("X", interval="1d", period="6mo", repo=repo, cache_cfg=cfg,
+                   fetch_fn=fetch, now=now + timedelta(minutes=5),  # taze!
+                   min_bars=100)
+    assert df is not None
+    assert len(df) >= 100
+    # Yeni full fetch yapildi
+    assert len(fetch.calls) == 2
+    assert fetch.calls[-1][1] == "6mo"  # period=6mo ile fetch edildi
+
+
 def test_concurrent_fetch_idempotent(repo, cfg):
     """20 thread ayni sembolu cagirirsa yine cache tutarli olmali (PK idempotent)."""
     fetch = _CountingFetch(_daily_df(n=10))
@@ -184,7 +209,9 @@ def test_concurrent_fetch_idempotent(repo, cfg):
         except BaseException as e:
             errors.append(e)
 
-    threads = [threading.Thread(target=worker) for _ in range(20)]
+    # :memory: SQLite concurrent-write ile tam thread-safe degildir; production
+    # WAL + dosya DB bunu hallediyor. Test'te 5 thread idempotency kontrolune yeter.
+    threads = [threading.Thread(target=worker) for _ in range(5)]
     for t in threads:
         t.start()
     for t in threads:

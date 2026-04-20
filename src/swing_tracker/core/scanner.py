@@ -75,21 +75,26 @@ class Scanner:
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _fetch_daily(self, symbol: str, period: str = "6mo") -> pd.DataFrame | None:
+        # Scanner 6mo icin 50+ bar istiyor, cache yetersizse full fetch tetiklensin.
+        min_bars = 100 if period in ("6mo", "1y", "2y") else 0
         return get_ohlcv(
             symbol,
             interval="1d",
             period=period,
             repo=self._repo,
             cache_cfg=self._config.cache,
+            min_bars=min_bars,
         )
 
     def _fetch_hourly(self, symbol: str, period: str = "5d") -> pd.DataFrame | None:
+        min_bars = 20 if period in ("5d", "10d") else 0
         return get_ohlcv(
             symbol,
             interval="1h",
             period=period,
             repo=self._repo,
             cache_cfg=self._config.cache,
+            min_bars=min_bars,
         )
 
     def _get_usdtry(self) -> float | None:
