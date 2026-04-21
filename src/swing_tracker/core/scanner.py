@@ -407,15 +407,14 @@ class Scanner:
             list(candidate_symbols),
         )
         for scored in results:
-            if scored is not None:
+            if scored is not None and self._log_scored_signal(scored):
                 candidates.append(scored)
-                self._log_scored_signal(scored)
 
         candidates.sort(key=lambda x: x.entry_score, reverse=True)
 
         logger.info(
             f"Quick scan tamamlandi: {len(candidate_symbols)} tarandi, "
-            f"{len(candidates)} sinyal (skor >= 5)"
+            f"{len(candidates)} yeni sinyal (24h cooldown sonrasi)"
         )
 
         return ScanResult(
@@ -469,15 +468,14 @@ class Scanner:
             done += 1
             if done % 50 == 0:
                 logger.info(f"Ilerleme: {done}/{len(symbols_str)}")
-            if scored is not None:
+            if scored is not None and self._log_scored_signal(scored):
                 candidates.append(scored)
-                self._log_scored_signal(scored)
 
         candidates.sort(key=lambda x: x.entry_score, reverse=True)
 
         logger.info(
             f"Deep scan tamamlandi: {len(all_symbols)} tarandi, "
-            f"{len(candidates)} sinyal"
+            f"{len(candidates)} yeni sinyal (24h cooldown sonrasi)"
         )
 
         return ScanResult(
