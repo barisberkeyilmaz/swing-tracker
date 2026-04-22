@@ -9,7 +9,7 @@ Uses the same entry logic proven in backtesting:
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import borsapy as bp
@@ -406,9 +406,16 @@ class Scanner:
             lambda s: self._score_symbol(s, available_cash, params),
             list(candidate_symbols),
         )
-        for scored in results:
-            if scored is not None and self._log_scored_signal(scored):
-                candidates.append(scored)
+        try:
+            for scored in results:
+                if scored is not None and self._log_scored_signal(scored):
+                    candidates.append(scored)
+        except CancelledError:
+            logger.info("Quick scan iptal edildi (shutdown)")
+            return ScanResult(
+                candidates=[], scanned_count=0, filtered_count=0,
+                market_bullish=True,
+            )
 
         candidates.sort(key=lambda x: x.entry_score, reverse=True)
 
@@ -464,12 +471,16 @@ class Scanner:
             symbols_str,
         )
         done = 0
-        for scored in results:
-            done += 1
-            if done % 50 == 0:
-                logger.info(f"Ilerleme: {done}/{len(symbols_str)}")
-            if scored is not None and self._log_scored_signal(scored):
-                candidates.append(scored)
+        try:
+            for scored in results:
+                done += 1
+                if done % 50 == 0:
+                    logger.info(f"Ilerleme: {done}/{len(symbols_str)}")
+                if scored is not None and self._log_scored_signal(scored):
+                    candidates.append(scored)
+        except CancelledError:
+            logger.info("Deep scan iptal edildi (shutdown)")
+            return ScanResult(candidates=[], scanned_count=0, filtered_count=0)
 
         candidates.sort(key=lambda x: x.entry_score, reverse=True)
 

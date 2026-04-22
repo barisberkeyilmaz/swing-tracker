@@ -6,8 +6,10 @@ Phase 2: Interactive commands (/durum, /portfoy, /scan, /nakit, /pozisyon)
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING
+import threading
+from typing import TYPE_CHECKING, Coroutine
 
 from telegram import Bot, Update
 from telegram.constants import ParseMode
@@ -30,6 +32,8 @@ class TelegramNotifier:
         self._config = config
         self._bot: Bot | None = None
         self._app: Application | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
 
         # These will be set by main.py after initialization
         self.scanner: Scanner | None = None
@@ -38,59 +42,83 @@ class TelegramNotifier:
         self.monitor: Monitor | None = None
 
         if config.enabled and config.token and config.chat_id:
+            self._start_loop()
             self._bot = Bot(token=config.token)
             logger.info("Telegram bot baslatildi")
         else:
             logger.warning("Telegram devre disi veya yapilandirilmamis")
 
-    def start_polling_in_thread(self) -> None:
-        """Start the bot polling in a separate thread.
+    # ── Persistent event loop ──
+    #
+    # Telegram'in httpx client'i olusturuldugu loop'a bagli kalir. Her cagride
+    # yeni loop acarsak (eski `_run_async` patterni) ikinci send_message
+    # "Event loop is closed" hatasi verir. Bu yuzden notifier tek bir daemon
+    # thread'te kalici loop tutar; hem polling hem sync notify bu loop'ta calisir.
 
-        Uses manual init/start instead of run_polling() to avoid
-        signal handler issues in non-main threads.
-        """
-        if not self._config.token:
-            return
+    def _start_loop(self) -> None:
+        loop_ready = threading.Event()
 
-        import threading
-
-        def _run_polling():
-            import asyncio
+        def _runner() -> None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-
-            async def _start():
-                app = Application.builder().token(self._config.token).build()
-                self._app = app
-
-                app.add_handler(CommandHandler("durum", self._cmd_durum))
-                app.add_handler(CommandHandler("portfoy", self._cmd_portfoy))
-                app.add_handler(CommandHandler("pozisyon", self._cmd_pozisyon))
-                app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
-                app.add_handler(CommandHandler("scan", self._cmd_scan))
-                app.add_handler(CommandHandler("yakin", self._cmd_yakin))
-                app.add_handler(CommandHandler("al", self._cmd_al))
-                app.add_handler(CommandHandler("sat", self._cmd_sat))
-                app.add_handler(CommandHandler("geri_al", self._cmd_geri_al))
-                app.add_handler(CommandHandler("yardim", self._cmd_yardim))
-                app.add_handler(CommandHandler("start", self._cmd_yardim))
-
-                await app.initialize()
-                await app.start()
-                await app.updater.start_polling(drop_pending_updates=True)
-                logger.info("Telegram komut dinleme baslatildi")
-
-                # Keep running until thread is killed
-                while True:
-                    await asyncio.sleep(1)
-
+            self._loop = loop
+            loop_ready.set()
             try:
-                loop.run_until_complete(_start())
-            except Exception:
-                logger.debug("Telegram polling thread kapandi")
+                loop.run_forever()
+            finally:
+                loop.close()
 
-        thread = threading.Thread(target=_run_polling, daemon=True)
-        thread.start()
+        self._loop_thread = threading.Thread(
+            target=_runner, daemon=True, name="telegram-loop",
+        )
+        self._loop_thread.start()
+        if not loop_ready.wait(timeout=5):
+            logger.error("Telegram event loop baslatilamadi")
+
+    def run_sync(self, coro: Coroutine, timeout: float = 30.0):
+        """Run a coroutine on the notifier's persistent loop from any thread."""
+        if self._loop is None or not self._loop.is_running():
+            logger.debug("Telegram loop yok, coroutine calistirilmadi")
+            coro.close()
+            return None
+        fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        try:
+            return fut.result(timeout=timeout)
+        except Exception:
+            logger.exception("Telegram coroutine hatasi")
+            return None
+
+    def start_polling(self) -> None:
+        """Schedule the polling Application on the notifier's loop."""
+        if not self._config.token or self._loop is None:
+            return
+
+        async def _start() -> None:
+            app = Application.builder().token(self._config.token).build()
+            self._app = app
+
+            app.add_handler(CommandHandler("durum", self._cmd_durum))
+            app.add_handler(CommandHandler("portfoy", self._cmd_portfoy))
+            app.add_handler(CommandHandler("pozisyon", self._cmd_pozisyon))
+            app.add_handler(CommandHandler("sinyal", self._cmd_sinyal))
+            app.add_handler(CommandHandler("scan", self._cmd_scan))
+            app.add_handler(CommandHandler("yakin", self._cmd_yakin))
+            app.add_handler(CommandHandler("al", self._cmd_al))
+            app.add_handler(CommandHandler("sat", self._cmd_sat))
+            app.add_handler(CommandHandler("geri_al", self._cmd_geri_al))
+            app.add_handler(CommandHandler("yardim", self._cmd_yardim))
+            app.add_handler(CommandHandler("start", self._cmd_yardim))
+
+            await app.initialize()
+            await app.start()
+            await app.updater.start_polling(drop_pending_updates=True)
+            logger.info("Telegram komut dinleme baslatildi")
+
+        asyncio.run_coroutine_threadsafe(_start(), self._loop)
+
+    # Backwards-compatible alias
+    def start_polling_in_thread(self) -> None:
+        self.start_polling()
 
     # ── Command Handlers ──
 

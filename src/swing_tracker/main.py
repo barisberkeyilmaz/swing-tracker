@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import platform
 import signal
+import socket
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -29,6 +29,7 @@ _scheduler: BackgroundScheduler | None = None
 _notifier: TelegramNotifier | None = None
 _scanner: Scanner | None = None
 _universe_builder: UniverseBuilder | None = None
+_shutdown_called: bool = False
 
 
 def setup_logging(config: Config) -> None:
@@ -57,19 +58,6 @@ def setup_logging(config: Config) -> None:
     root_logger.addHandler(console_handler)
 
 
-def _run_async(coro):
-    """Run an async coroutine from a sync context (APScheduler thread)."""
-    try:
-        asyncio.run(coro)
-    except RuntimeError:
-        # If there's already an event loop, create a new one
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(coro)
-        finally:
-            loop.close()
-
-
 # ── Scheduled Jobs ──
 
 
@@ -84,7 +72,7 @@ def job_quick_scan(scanner: Scanner, portfolio: PortfolioManager, notifier: Tele
             return
 
         for candidate in result.candidates:
-            _run_async(notifier.notify_scored_signal(candidate))
+            notifier.run_sync(notifier.notify_scored_signal(candidate))
 
         logger.info(f"Quick scan: {result.filtered_count} sinyal bulundu")
     except Exception:
@@ -98,7 +86,7 @@ def job_deep_scan(scanner: Scanner, portfolio: PortfolioManager, notifier: Teleg
         result = scanner.run_deep_scan()
         open_trades = scanner._repo.get_open_trades()
 
-        _run_async(notifier.notify_daily_report(
+        notifier.run_sync(notifier.notify_daily_report(
             open_trades=open_trades,
             new_signals=result.candidates,
             market_bullish=result.market_bullish,
@@ -114,7 +102,7 @@ def job_monitor(monitor: Monitor, notifier: TelegramNotifier):
     try:
         alerts = monitor.check_positions()
         for alert in alerts:
-            _run_async(notifier.notify_alert(alert))
+            notifier.run_sync(notifier.notify_alert(alert))
             logger.info(f"Alert: {alert.alert_type} - {alert.symbol}")
     except Exception:
         logger.exception("Monitor hatasi")
@@ -141,7 +129,11 @@ def job_build_universe(builder: UniverseBuilder):
 
 
 def shutdown(signum=None, frame=None):
-    """Graceful shutdown handler."""
+    """Graceful shutdown handler (idempotent)."""
+    global _shutdown_called
+    if _shutdown_called:
+        return
+    _shutdown_called = True
     logger.info("Kapatiliyor...")
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
@@ -159,6 +151,12 @@ def main():
     config = load_config()
     setup_logging(config)
     logger.info("Swing Tracker baslatiliyor...")
+
+    # Network safety: borsapy/yfinance icin global socket timeout. Timeout yok
+    # olursa TradingView socket'i sonsuza dek hang olabilir ve APScheduler
+    # default max_instances=1 yuzunden takip eden tum scan'ler silently drop
+    # edilir.
+    socket.setdefaulttimeout(60)
 
     # Signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, shutdown)
