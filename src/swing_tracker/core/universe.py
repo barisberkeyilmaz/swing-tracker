@@ -188,6 +188,10 @@ class UniverseBuilder:
         )
         return (len(symbols), len(kept_rows))
 
+    def has_built_universe(self) -> bool:
+        """liquid_universe tablosu dolu mu? (Bos = build henuz kosmadi.)"""
+        return bool(self._repo.get_liquid_symbols())
+
     def get_liquid_symbols(self) -> list[str]:
         """Filtre edilmis likit semboller. Bossa fallback evrene dus."""
         rows = self._repo.get_liquid_symbols()

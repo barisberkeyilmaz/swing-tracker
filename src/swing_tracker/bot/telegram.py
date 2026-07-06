@@ -26,6 +26,37 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+TELEGRAM_MAX_LEN = 4096
+
+
+def chunk_message(text: str, limit: int = TELEGRAM_MAX_LEN) -> list[str]:
+    """Metni Telegram'in mesaj sinirina sigan parcalara bol.
+
+    Satir sinirlarina saygi duyar (HTML tag'leri satir ici oldugundan parse
+    mode guvende kalir); tek satir siniri asarsa mecburen ortadan boler.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
 
 class TelegramNotifier:
     def __init__(self, config: TelegramConfig):
@@ -532,7 +563,8 @@ class TelegramNotifier:
                     )
 
             lines.append(f"\n{len(candidate_symbols)} aday tarandi")
-            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+            for chunk in chunk_message("\n".join(lines)):
+                await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
 
         except Exception:
             logger.exception("Yakin komutu hatasi")
