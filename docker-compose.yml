@@ -1,0 +1,32 @@
+services:
+  tracker:
+    build: .
+    image: swing-tracker:latest
+    container_name: swing-tracker
+    restart: always
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.toml:/app/config.toml:ro
+    command: python -m swing_tracker.main
+
+  web:
+    image: swing-tracker:latest
+    container_name: swing-tracker-web
+    restart: always
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.toml:/app/config.toml:ro
+    command: uvicorn swing_tracker.web.app:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/login', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - tracker

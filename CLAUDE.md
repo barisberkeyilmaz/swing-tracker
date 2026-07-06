@@ -35,8 +35,11 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 python -m swing_tracker.main
 
-# Uretim (Windows, nssm ile servis)
-nssm install SwingTracker ".venv\Scripts\python.exe" "-m swing_tracker.main"
+# Uretim (homelab Docker VM: berke@192.168.1.202, detay: DEPLOY.md)
+rsync -az --delete --exclude '.git' --exclude '.venv' --exclude '.env' \
+  --exclude 'data' --exclude 'logs' --exclude '__pycache__' \
+  ./ berke@192.168.1.202:~/swing-tracker/
+ssh berke@192.168.1.202 'cd ~/swing-tracker && docker compose up -d --build'
 ```
 
 ## Teknoloji

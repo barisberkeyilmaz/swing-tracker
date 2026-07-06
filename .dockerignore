@@ -1,0 +1,16 @@
+.git/
+.venv/
+.env
+.claude/
+.agents/
+__pycache__/
+*.pyc
+data/
+logs/
+dist/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+tests/
+scripts/__pycache__/
+docs/
