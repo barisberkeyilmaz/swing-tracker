@@ -74,6 +74,27 @@ class Scanner:
         """Graceful shutdown of the fetch worker pool."""
         self._executor.shutdown(wait=False, cancel_futures=True)
 
+    def _apply_liquidity_filter(self, candidate_symbols: set[str]) -> set[str]:
+        """Adaylari liquid_universe ile kesistir.
+
+        Tablo bossa (build henuz kosmadi) kesisim ATLANIR: fallback evren
+        (XU100) ile XTUMY adaylarinin kesisimi tipik olarak bos ciktigindan,
+        kesisim yapmak sistemi build calisana kadar kor birakir.
+        """
+        if self._universe_builder is None or not self._config.liquidity.enabled:
+            return candidate_symbols
+        if not self._universe_builder.has_built_universe():
+            logger.warning(
+                "liquid_universe bos — likidite filtresi atlaniyor "
+                "(build kosunca devreye girer)"
+            )
+            return candidate_symbols
+        liquid = set(self._universe_builder.get_liquid_symbols())
+        before = len(candidate_symbols)
+        filtered = candidate_symbols & liquid
+        logger.info(f"Likidite filtresi: {before} aday → {len(filtered)} likit")
+        return filtered
+
     def _fetch_daily(self, symbol: str, period: str = "6mo") -> pd.DataFrame | None:
         # Scanner 6mo icin 50+ bar istiyor, cache yetersizse full fetch tetiklensin.
         min_bars = 100 if period in ("6mo", "1y", "2y") else 0
@@ -389,14 +410,7 @@ class Scanner:
                 logger.warning(f"Pre-filter hatasi: {prefilter}")
 
         # Likidite filtresi: sadece liquid_universe ile kesisim
-        if self._universe_builder is not None and self._config.liquidity.enabled:
-            liquid = set(self._universe_builder.get_liquid_symbols())
-            if liquid:
-                before = len(candidate_symbols)
-                candidate_symbols &= liquid
-                logger.info(
-                    f"Likidite filtresi: {before} aday → {len(candidate_symbols)} likit"
-                )
+        candidate_symbols = self._apply_liquidity_filter(candidate_symbols)
 
         logger.info(f"Toplam {len(candidate_symbols)} benzersiz aday bulundu")
 
