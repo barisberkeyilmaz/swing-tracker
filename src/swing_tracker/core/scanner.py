@@ -524,3 +524,4 @@ class Scanner:
             indicator_values={"entry_score": scored.entry_score, "reasons": ", ".join(scored.reasons)},
             score=scored.entry_score * 10,
         )
+        return True
