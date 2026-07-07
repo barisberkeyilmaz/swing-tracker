@@ -29,6 +29,20 @@ logger = logging.getLogger(__name__)
 TELEGRAM_MAX_LEN = 4096
 
 
+def yakin_score_label(score: int) -> tuple[str, str]:
+    """/yakin icin skor etiketi. Esik canli tarayiciyla ayni (MIN_ENTRY_SCORE)."""
+    from swing_tracker.core.scanner import MIN_ENTRY_SCORE
+
+    if score >= MIN_ENTRY_SCORE:
+        return ("🟢", "SiNYAL")
+    remaining = MIN_ENTRY_SCORE - score
+    if remaining == 1:
+        return ("🟡", "1 puan kaldi")
+    if remaining == 2:
+        return ("🔵", "2 puan kaldi")
+    return ("⚪", f"{remaining} puan kaldi")
+
+
 def chunk_message(text: str, limit: int = TELEGRAM_MAX_LEN) -> list[str]:
     """Metni Telegram'in mesaj sinirina sigan parcalara bol.
 
@@ -540,19 +554,7 @@ class TelegramNotifier:
 
             for score in sorted(score_groups.keys(), reverse=True):
                 group = score_groups[score]
-                remaining = 5 - score
-                if score >= 5:
-                    emoji = "🟢"
-                    label = "SiNYAL"
-                elif score >= 4:
-                    emoji = "🟡"
-                    label = f"{remaining} puan kaldi"
-                elif score >= 3:
-                    emoji = "🔵"
-                    label = f"{remaining} puan kaldi"
-                else:
-                    emoji = "⚪"
-                    label = f"{remaining} puan kaldi"
+                emoji, label = yakin_score_label(score)
 
                 lines.append(f"\n{emoji} <b>Skor {score}/8 ({label}):</b>")
                 for s in group:

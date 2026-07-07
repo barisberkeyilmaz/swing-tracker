@@ -31,6 +31,10 @@ from swing_tracker.db.repository import Repository
 
 logger = logging.getLogger(__name__)
 
+# Canli tarayici giris esigi: entry_score bu degerin altindaysa aday elenir.
+# /yakin etiketleri de bu esigi kullanir (bkz. bot/telegram.py).
+MIN_ENTRY_SCORE = 4
+
 
 @dataclass
 class ScoredCandidate:
@@ -245,7 +249,7 @@ class Scanner:
                 score += 1
                 reasons.append(f"Hacim={volume / vol_avg:.1f}x")
 
-            if score < 4:
+            if score < MIN_ENTRY_SCORE:
                 return None
 
             # Build full analysis for TP/SL levels
