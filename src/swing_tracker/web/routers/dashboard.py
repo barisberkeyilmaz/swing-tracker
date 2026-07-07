@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from swing_tracker.web.auto_setup import compute_setup
 from swing_tracker.web.dependencies import templates, get_repo, get_config
-from swing_tracker.web.helpers import calc_capital_summary
+from swing_tracker.web.helpers import calc_capital_summary, localize_signal_timestamps
 from swing_tracker.web.price_cache import price_cache
 from swing_tracker.web.regime_cache import get_market_regime
 
@@ -33,7 +33,9 @@ async def dashboard(request: Request):
         trade["realized_pnl"] = sum(e.get("pnl", 0) or 0 for e in exits)
 
     # Son sinyaller
-    recent_signals = repo.get_recent_signals(limit=10)
+    recent_signals = localize_signal_timestamps(
+        repo.get_recent_signals(limit=10), config.timezone
+    )
     for sig in recent_signals:
         if sig.get("indicator_values"):
             try:

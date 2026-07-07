@@ -9,6 +9,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from swing_tracker.web.dependencies import templates, get_repo, get_config
+from swing_tracker.web.helpers import localize_signal_timestamps
 
 router = APIRouter(prefix="/signals")
 
@@ -18,7 +19,9 @@ async def signals_list(request: Request):
     repo = get_repo()
     config = get_config()
 
-    recent_signals = repo.get_recent_signals(limit=50)
+    recent_signals = localize_signal_timestamps(
+        repo.get_recent_signals(limit=50), config.timezone
+    )
     for sig in recent_signals:
         if sig.get("indicator_values"):
             try:

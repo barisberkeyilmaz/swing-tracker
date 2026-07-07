@@ -28,6 +28,14 @@ def _utc_to_local(ts: str, tz: ZoneInfo) -> str:
     return ts[:16]
 
 
+def localize_signal_timestamps(signals: list[dict], tz: ZoneInfo = _DEFAULT_TZ) -> list[dict]:
+    """Sinyal dict'lerindeki UTC created_at'i yerel saate cevir (in-place)."""
+    for sig in signals:
+        if sig.get("created_at"):
+            sig["created_at"] = _utc_to_local(sig["created_at"], tz)
+    return signals
+
+
 @dataclass
 class CapitalSummary:
     net_deposits: float        # Manuel net nakit (yatirma - cekme)
