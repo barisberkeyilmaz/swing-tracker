@@ -27,7 +27,8 @@ def repo():
     return Repository(conn)
 
 
-def _log(repo, symbol, signal_type="buy", score=5, price=100.0, created_at=None):
+def _log(repo, symbol, signal_type="buy", score=5, price=100.0, created_at=None,
+          indicator_values=None):
     sid = repo.log_signal(
         symbol=symbol,
         signal_type=signal_type,
@@ -35,6 +36,7 @@ def _log(repo, symbol, signal_type="buy", score=5, price=100.0, created_at=None)
         strength="medium",
         price_at_signal=price,
         score=score,
+        indicator_values=indicator_values,
     )
     if created_at:
         repo._conn.execute(
@@ -384,7 +386,10 @@ class TestBuildWhatIfData:
     def test_assembles_from_injected_fetchers(self, repo, monkeypatch):
         from swing_tracker.web.routers import whatif as whatif_router
 
-        _log(repo, "THYAO", score=5, price=100.0, created_at="2026-06-21 07:30:00")
+        _log(
+            repo, "THYAO", score=50, price=100.0, created_at="2026-06-21 07:30:00",
+            indicator_values={"entry_score": 5, "reasons": "test"},
+        )
 
         daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)] * 3)
         hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
@@ -404,4 +409,37 @@ class TestBuildWhatIfData:
 
         assert len(trades) == 1
         assert trades[0].symbol == "THYAO"
+        assert trades[0].score == 5
         assert stats.strategy.trade_count == 1
+
+
+class TestEntryScore:
+    def test_indicator_values_entry_score_wins(self):
+        from swing_tracker.web.routers.whatif import _entry_score
+
+        sig = {"score": 60, "indicator_values": '{"entry_score": 6, "reasons": "x"}'}
+        assert _entry_score(sig) == 6
+
+    def test_missing_entry_score_falls_back_to_score_div_10(self):
+        from swing_tracker.web.routers.whatif import _entry_score
+
+        sig = {"score": 50, "indicator_values": '{"reasons": "x"}'}
+        assert _entry_score(sig) == 5
+
+    def test_malformed_json_falls_back_to_score_div_10(self):
+        from swing_tracker.web.routers.whatif import _entry_score
+
+        sig = {"score": 40, "indicator_values": "not json"}
+        assert _entry_score(sig) == 4
+
+    def test_legacy_row_small_score_unscaled(self):
+        from swing_tracker.web.routers.whatif import _entry_score
+
+        sig = {"score": 5, "indicator_values": ""}
+        assert _entry_score(sig) == 5
+
+    def test_score_none_returns_zero(self):
+        from swing_tracker.web.routers.whatif import _entry_score
+
+        sig = {"score": None, "indicator_values": None}
+        assert _entry_score(sig) == 0

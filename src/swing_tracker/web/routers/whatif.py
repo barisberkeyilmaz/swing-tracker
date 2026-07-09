@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import logging
 
 from fastapi import APIRouter, Request
@@ -26,9 +27,27 @@ _DAILY_PERIOD = "1y"
 _HOURLY_PERIOD = "3mo"
 
 
+def _entry_score(sig: dict) -> int:
+    """signals_log.score = entry_score * 10 (scanner boyle yazar).
+
+    indicator_values JSON'daki entry_score birincil kaynak; yoksa score/10'a,
+    o da yoksa score'un kendisine duser.
+    """
+    try:
+        values = json.loads(sig.get("indicator_values") or "{}")
+        if "entry_score" in values:
+            return int(values["entry_score"])
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    score = sig.get("score") or 0
+    return score // 10 if score >= 10 else score
+
+
 def build_whatif_data(repo, config) -> tuple[list[WhatIfTrade], WhatIfStats]:
     """Sinyalleri cek, OHLCV + guncel fiyatlari topla, simulasyonu kostur. Sync/blocking."""
-    signals = repo.get_buy_signals_asc(min_score=MIN_ENTRY_SCORE)
+    signals = repo.get_buy_signals_asc(min_score=MIN_ENTRY_SCORE * 10)
+    for sig in signals:
+        sig["score"] = _entry_score(sig)
     symbols = list(dict.fromkeys(s["symbol"] for s in signals))
 
     ohlcv_1h = {}
