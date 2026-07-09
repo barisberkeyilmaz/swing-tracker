@@ -102,6 +102,13 @@ class TestFindEntry:
     def test_no_1h_data_falls_back(self):
         assert find_entry(None, "2026-07-01 10:00:00", 99.0) == (99.0, "fallback")
 
+    def test_stale_signal_beyond_window_falls_back(self):
+        # Sinyal 1h fetch penceresinden (3mo) cok eski; ilk sonraki bar aslinda
+        # haftalar sonra — 2 gunden uzak oldugu icin fallback'e dusmeli.
+        df = _df_1h("2026-06-01 08:00:00", [100.0, 101.0, 101.5])
+        result = find_entry(df, "2026-03-01 10:00:00", 90.0)
+        assert result == (90.0, "fallback")
+
     def test_nothing_available(self):
         assert find_entry(None, "2026-07-01 10:00:00", None) is None
 

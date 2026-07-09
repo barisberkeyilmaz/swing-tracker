@@ -87,16 +87,21 @@ def find_entry(
 ) -> tuple[float, str] | None:
     """Sinyalden sonraki ilk 1h bar'in kapanisini giris fiyati olarak sec.
 
-    1h bar yoksa veya sinyal son bar'dan sonraysa price_at_signal'a duser.
-    Hicbir fiyat yoksa None.
+    1h bar yoksa, sinyal son bar'dan sonraysa veya en yakin bar sinyalden
+    2 gunden uzaksa (ornegin sinyal fetch edilen 1h penceresinden eskiyse)
+    price_at_signal'a duser. Hicbir fiyat yoksa None.
     """
     ts = pd.Timestamp(signal_ts)
     if df_1h is not None and not df_1h.empty:
         later = df_1h[df_1h.index >= ts]
         if not later.empty:
-            close = later.iloc[0]["Close"]
-            if pd.notna(close) and float(close) > 0:
-                return float(close), "bar_1h"
+            first = later.iloc[0]
+            # Sinyal 1h penceresinden eskiyse "sonraki bar" haftalar sonrasi olabilir;
+            # 2 gunden uzak bar gercekci giris degildir, sinyal fiyatina dusulur.
+            if later.index[0] - ts <= pd.Timedelta(days=2):
+                close = first["Close"]
+                if pd.notna(close) and float(close) > 0:
+                    return float(close), "bar_1h"
     if price_at_signal is not None and price_at_signal > 0:
         return float(price_at_signal), "fallback"
     return None

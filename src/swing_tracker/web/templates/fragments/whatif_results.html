@@ -125,9 +125,9 @@
     <h2 class="text-sm font-semibold text-txt-secondary mb-3">Kumulatif Getiri (kapanan islemler)</h2>
     <div class="h-48"><canvas id="whatifCurve"></canvas></div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
 (function() {
+    if (!window.Chart) { return; }
     const curve = {{ stats.cumulative_curve|tojson }};
     const ctx = document.getElementById('whatifCurve').getContext('2d');
     new Chart(ctx, {

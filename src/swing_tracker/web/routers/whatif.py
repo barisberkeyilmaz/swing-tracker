@@ -93,22 +93,30 @@ async def whatif_results(request: Request):
     repo = get_repo()
     config = get_config()
 
-    trades, stats = await asyncio.to_thread(build_whatif_data, repo, config)
+    try:
+        trades, stats = await asyncio.to_thread(build_whatif_data, repo, config)
 
-    # Sinyal saatlerini goruntuleme icin Istanbul'a cevir
-    display = []
-    for t in trades:
-        d = t.__dict__.copy()
-        d["signal_time_local"] = localize_signal_timestamps(
-            [{"created_at": t.signal_time}], config.timezone
-        )[0]["created_at"]
-        display.append(d)
+        # Sinyal saatlerini goruntuleme icin Istanbul'a cevir
+        display = []
+        for t in trades:
+            d = t.__dict__.copy()
+            d["signal_time_local"] = localize_signal_timestamps(
+                [{"created_at": t.signal_time}], config.timezone
+            )[0]["created_at"]
+            display.append(d)
 
-    # En yeni sinyal ustte
-    display.sort(key=lambda d: d["signal_time"], reverse=True)
+        # En yeni sinyal ustte
+        display.sort(key=lambda d: d["signal_time"], reverse=True)
 
-    return templates.TemplateResponse(
-        request,
-        "fragments/whatif_results.html",
-        context={"trades": display, "stats": stats},
-    )
+        return templates.TemplateResponse(
+            request,
+            "fragments/whatif_results.html",
+            context={"trades": display, "stats": stats},
+        )
+    except Exception:
+        logger.exception("whatif: simulasyon hatasi")
+        return HTMLResponse(
+            '<div class="bg-surface-raised border border-border rounded-xl p-8 '
+            'text-center text-txt-muted">Simulasyon calistirilamadi. '
+            'Sayfayi yenileyip tekrar deneyin.</div>'
+        )
