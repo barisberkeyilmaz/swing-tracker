@@ -7,7 +7,8 @@ import sqlite3
 import pandas as pd
 import pytest
 
-from swing_tracker.core.whatif import atr_from_daily, find_entry
+from swing_tracker.backtest.models import BacktestConfig
+from swing_tracker.core.whatif import atr_from_daily, find_entry, simulate_whatif
 from swing_tracker.db.repository import Repository
 from swing_tracker.db.schema import create_all_tables
 
@@ -117,3 +118,131 @@ class TestAtrFromDaily:
         rows = [(100.0, 101.0, 99.0, 100.0)] * 5
         df = _df_1d("2026-06-01", rows)
         assert atr_from_daily(df, "2026-06-10 10:00:00") is None
+
+
+def _bt_config():
+    # sl = entry - 2*ATR, tp1 = entry + 1.5*ATR, tp2 = entry + 3*ATR
+    return BacktestConfig(
+        commission_pct=0.0, commission_fixed=0.0,
+        sl_atr_mult=2.0, tp1_atr_mult=1.5, tp1_exit_pct=0.50,
+        tp2_atr_mult=3.0, tp2_exit_pct=0.30, trailing_stop_pct=0.20,
+    )
+
+
+def _signal(sid, symbol, created_at, score=5, price=100.0):
+    return {
+        "id": sid, "symbol": symbol, "created_at": created_at,
+        "score": score, "price_at_signal": price,
+    }
+
+
+# 20 gun sabit bar (ATR=2) + sinyal gunu; index 2026-06-01'den baslar.
+_WARMUP = [(100.0, 101.0, 99.0, 100.0)] * 20
+
+
+class TestSimulateWhatif:
+    def test_open_trade_marks_to_market(self):
+        # Giris 100 (1h bar), sonraki gunler TP1'e (103) ulasamiyor → acik, guncel 102
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)] * 3)
+        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
+        signals = [_signal(1, "THYAO", "2026-06-21 07:30:00")]
+
+        trades, skipped = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 102.0}, _bt_config()
+        )
+
+        assert skipped == 0
+        t = trades[0]
+        assert t.status == "open"
+        assert t.entry_price == 100.0
+        assert t.entry_source == "bar_1h"
+        assert t.stop_loss == pytest.approx(96.0)   # 100 - 2*2
+        assert t.tp1 == pytest.approx(103.0)        # 100 + 1.5*2
+        assert t.strategy_pnl_pct == pytest.approx(2.0)  # mark-to-market
+        assert t.buyhold_pnl_pct == pytest.approx(2.0)
+
+    def test_stop_loss_closes_trade(self):
+        # Ertesi gun low 90 < SL 96 → SL'den kapanir, -4%
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 100.0, 90.0, 92.0)])
+        hourly = _df_1h("2026-06-20 06:00:00", [100.0] * 5)
+        signals = [_signal(1, "THYAO", "2026-06-20 07:30:00")]
+
+        trades, _ = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 92.0}, _bt_config()
+        )
+
+        t = trades[0]
+        assert t.status == "closed"
+        assert t.exit_type == "sl"
+        assert t.strategy_pnl_pct == pytest.approx(-4.0)
+        # Al-tut SL bilmez: guncel fiyattan -8%
+        assert t.buyhold_pnl_pct == pytest.approx(-8.0)
+
+    def test_entry_day_bars_not_used_for_exits(self):
+        # Giris gununun kendi gunluk bar'i exit tetiklememeli (lookahead onlemi):
+        # giris gunu low 90 SL'in altinda ama islem acik kalmali.
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 100.0, 90.0, 100.0)])
+        # Sinyal son gunluk bar gununde (2026-06-21)
+        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
+        signals = [_signal(1, "THYAO", "2026-06-21 07:30:00")]
+
+        trades, _ = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 100.0}, _bt_config()
+        )
+        assert trades[0].status == "open"
+
+    def test_dedup_skips_signal_while_open(self):
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)] * 3)
+        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 10)
+        signals = [
+            _signal(1, "THYAO", "2026-06-21 07:30:00"),
+            _signal(2, "THYAO", "2026-06-21 09:30:00"),  # pozisyon acikken → atla
+        ]
+
+        trades, skipped = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 102.0}, _bt_config()
+        )
+        assert len(trades) == 1
+        assert skipped == 1
+
+    def test_dedup_allows_after_close(self):
+        # Ilk islem SL ile 2026-06-21'de kapanir; 2026-06-23 sinyali yeni islem acar.
+        daily = _df_1d(
+            "2026-06-01",
+            _WARMUP + [(100.0, 100.0, 90.0, 92.0), (92.0, 93.0, 91.0, 92.0),
+                       (92.0, 94.0, 91.5, 93.0)],
+        )
+        hourly = _df_1h("2026-06-20 06:00:00", [100.0] * 80)  # 3+ gun kapsar
+        signals = [
+            _signal(1, "THYAO", "2026-06-20 07:30:00"),
+            _signal(2, "THYAO", "2026-06-23 07:30:00"),
+        ]
+
+        trades, skipped = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 93.0}, _bt_config()
+        )
+        assert len(trades) == 2
+        assert skipped == 0
+
+    def test_no_daily_data_marks_no_data(self):
+        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
+        signals = [_signal(1, "THYAO", "2026-06-21 07:30:00")]
+
+        trades, _ = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": None}, {"THYAO": 102.0}, _bt_config()
+        )
+        assert trades[0].status == "no_data"
+        assert trades[0].strategy_pnl_pct is None
+        # Al-tut guncel fiyatla yine hesaplanabilir
+        assert trades[0].buyhold_pnl_pct == pytest.approx(2.0)
+
+    def test_delay_cost(self):
+        # price_at_signal 100, 1h giris 102 → gecikme maliyeti +2%
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 103.0, 99.5, 102.0)] * 2)
+        hourly = _df_1h("2026-06-21 06:00:00", [102.0] * 5)
+        signals = [_signal(1, "THYAO", "2026-06-21 07:30:00", price=100.0)]
+
+        trades, _ = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 102.0}, _bt_config()
+        )
+        assert trades[0].delay_cost_pct == pytest.approx(2.0)

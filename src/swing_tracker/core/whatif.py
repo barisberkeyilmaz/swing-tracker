@@ -12,6 +12,9 @@ from typing import Literal
 
 import pandas as pd
 
+from swing_tracker.backtest.exits import check_exits
+from swing_tracker.backtest.models import BacktestConfig, BacktestTrade
+
 ATR_PERIOD = 14
 VIRTUAL_SHARES = 100  # yuzde getiri olculuyor; sabit sanal lot
 
@@ -85,3 +88,126 @@ def atr_from_daily(
     if pd.isna(atr) or atr <= 0:
         return None
     return float(atr)
+
+
+def _simulate_strategy(
+    trade: WhatIfTrade,
+    df_1d: pd.DataFrame,
+    current_price: float | None,
+    bt_config: BacktestConfig,
+) -> None:
+    """Gunluk bar'lari check_exits'e vererek strateji sonucunu WhatIfTrade'e yazar."""
+    bt = BacktestTrade(
+        symbol=trade.symbol,
+        direction="long",
+        entry_price=trade.entry_price,
+        entry_date=trade.signal_time,
+        shares=VIRTUAL_SHARES,
+        stop_loss=trade.stop_loss,
+        tp1=trade.tp1,
+        tp2=trade.tp2,
+    )
+    # Lookahead onlemi: giris gununun KENDI bar'i exit tetiklemez,
+    # ertesi gunden itibaren bakilir.
+    entry_day = pd.Timestamp(trade.signal_time).normalize()
+    later = df_1d[df_1d.index.normalize() > entry_day]
+
+    for ts, row in later.iterrows():
+        exits = check_exits(
+            bt, ts.date().isoformat(),
+            float(row["High"]), float(row["Low"]), float(row["Close"]),
+            bt_config,
+        )
+        # check_exits might return early without adding to trade.exits, so do it manually
+        bt.exits.extend(exits)
+        if bt.status == "closed":
+            break
+
+    cost = trade.entry_price * VIRTUAL_SHARES
+    if bt.status == "closed":
+        trade.status = "closed"
+        trade.strategy_pnl_pct = round(bt.total_pnl / cost * 100, 2)
+        last_exit = bt.exits[-1]
+        trade.exit_type = last_exit.exit_type
+        trade.exit_date = last_exit.date
+        trade.holding_days = float(
+            (pd.Timestamp(last_exit.date) - entry_day).days
+        )
+    else:
+        trade.status = "open"
+        unrealized = 0.0
+        if current_price is not None:
+            unrealized = (current_price - trade.entry_price) * bt.remaining_shares
+        trade.strategy_pnl_pct = round((bt.total_pnl + unrealized) / cost * 100, 2)
+
+
+def simulate_whatif(
+    signals: list[dict],
+    ohlcv_1h: dict[str, pd.DataFrame | None],
+    ohlcv_1d: dict[str, pd.DataFrame | None],
+    current_prices: dict[str, float],
+    bt_config: BacktestConfig,
+) -> tuple[list[WhatIfTrade], int]:
+    """Sinyalleri kronolojik isler; (islemler, dedup ile atlanan sayisi) doner.
+
+    Dedup: sembolde acik sanal pozisyon varken (veya kapanis sinyalden sonraysa)
+    yeni buy sinyali atlanir.
+    """
+    trades: list[WhatIfTrade] = []
+    skipped = 0
+    # symbol -> son islemin kapanis Timestamp'i (None = hala acik/no_data)
+    position_until: dict[str, pd.Timestamp | None] = {}
+
+    for sig in signals:
+        symbol = sig["symbol"]
+        signal_ts = sig["created_at"]
+
+        if symbol in position_until:
+            closed_at = position_until[symbol]
+            if closed_at is None or pd.Timestamp(signal_ts) <= closed_at:
+                skipped += 1
+                continue
+
+        entry = find_entry(ohlcv_1h.get(symbol), signal_ts, sig.get("price_at_signal"))
+        if entry is None:
+            continue  # fiyat yok: islem uretilemez, dedup'a da girmez
+        entry_price, source = entry
+
+        price_at_signal = sig.get("price_at_signal")
+        delay_cost = None
+        if source == "bar_1h" and price_at_signal:
+            delay_cost = round((entry_price - price_at_signal) / price_at_signal * 100, 2)
+
+        current = current_prices.get(symbol)
+        df_1d = ohlcv_1d.get(symbol)
+        atr = atr_from_daily(df_1d, signal_ts) if df_1d is not None else None
+
+        trade = WhatIfTrade(
+            signal_id=sig["id"],
+            symbol=symbol,
+            signal_time=signal_ts,
+            score=sig.get("score") or 0,
+            price_at_signal=price_at_signal,
+            entry_price=entry_price,
+            entry_source=source,
+            stop_loss=round(entry_price - (atr or 0) * bt_config.sl_atr_mult, 2),
+            tp1=round(entry_price + (atr or 0) * bt_config.tp1_atr_mult, 2),
+            tp2=round(entry_price + (atr or 0) * bt_config.tp2_atr_mult, 2),
+            status="no_data",
+            current_price=current,
+            delay_cost_pct=delay_cost,
+        )
+
+        if current is not None:
+            trade.buyhold_pnl_pct = round((current - entry_price) / entry_price * 100, 2)
+
+        if df_1d is not None and atr is not None:
+            _simulate_strategy(trade, df_1d, current, bt_config)
+
+        trades.append(trade)
+        if trade.status == "closed":
+            position_until[symbol] = pd.Timestamp(trade.exit_date)
+        else:
+            position_until[symbol] = None  # acik veya no_data: sembol blokeli
+
+    return trades, skipped
