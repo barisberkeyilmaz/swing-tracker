@@ -1,0 +1,222 @@
+<div>
+{% if not trades %}
+<div class="bg-surface-raised border border-border rounded-xl p-8 text-center text-txt-muted">
+    Henuz esik ustu buy sinyali yok. Sinyaller uretildikce burada simulasyon gorunecek.
+</div>
+{% else %}
+
+<!-- Ozet kartlari: Strateji vs Al-Tut -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    {% for mode, label in [(stats.strategy, "Strateji Kurallari"), (stats.buyhold, "Al ve Tut")] %}
+    <div class="bg-surface-raised border border-border rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-txt-secondary mb-3">{{ label }}</h2>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <div class="text-[11px] text-txt-ghost uppercase">Toplam Getiri</div>
+                <div class="text-xl font-bold {{ 'text-positive' if mode.total_pnl_pct >= 0 else 'text-negative' }}">
+                    {{ "%+.1f"|format(mode.total_pnl_pct) }}%
+                </div>
+            </div>
+            <div>
+                <div class="text-[11px] text-txt-ghost uppercase">Win Rate</div>
+                <div class="text-xl font-bold text-txt-primary">{{ "%.0f"|format(mode.win_rate) }}%</div>
+            </div>
+            <div>
+                <div class="text-[11px] text-txt-ghost uppercase">Ort. Getiri</div>
+                <div class="text-sm font-semibold {{ 'text-positive' if mode.avg_pnl_pct >= 0 else 'text-negative' }}">
+                    {{ "%+.2f"|format(mode.avg_pnl_pct) }}%
+                </div>
+            </div>
+            <div>
+                <div class="text-[11px] text-txt-ghost uppercase">Islem</div>
+                <div class="text-sm font-semibold text-txt-primary">
+                    {{ mode.trade_count }}
+                    {% if mode.closed_count %}<span class="text-txt-ghost">({{ mode.closed_count }} kapali)</span>{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Istatistikler -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    <div class="bg-surface-raised border border-border rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-txt-secondary mb-3">Dagilim (Strateji)</h2>
+        <dl class="space-y-2 text-sm">
+            <div class="flex justify-between">
+                <dt class="text-txt-muted">Medyan getiri</dt>
+                <dd class="text-txt-primary font-medium">{{ "%+.2f"|format(stats.strategy.median_pnl_pct) }}%</dd>
+            </div>
+            <div class="flex justify-between">
+                <dt class="text-txt-muted">Profit factor</dt>
+                <dd class="text-txt-primary font-medium">
+                    {% if stats.strategy.profit_factor is none %}&infin;{% else %}{{ stats.strategy.profit_factor }}{% endif %}
+                </dd>
+            </div>
+            {% if stats.strategy.best %}
+            <div class="flex justify-between">
+                <dt class="text-txt-muted">En iyi</dt>
+                <dd class="text-positive font-medium">
+                    <a href="/symbol/{{ stats.strategy.best[0] }}" class="hover:underline">{{ stats.strategy.best[0] }}</a>
+                    {{ "%+.1f"|format(stats.strategy.best[1]) }}%
+                </dd>
+            </div>
+            <div class="flex justify-between">
+                <dt class="text-txt-muted">En kotu</dt>
+                <dd class="text-negative font-medium">
+                    <a href="/symbol/{{ stats.strategy.worst[0] }}" class="hover:underline">{{ stats.strategy.worst[0] }}</a>
+                    {{ "%+.1f"|format(stats.strategy.worst[1]) }}%
+                </dd>
+            </div>
+            {% endif %}
+            {% if stats.avg_holding_days is not none %}
+            <div class="flex justify-between">
+                <dt class="text-txt-muted">Ort. tutma suresi</dt>
+                <dd class="text-txt-primary font-medium">{{ stats.avg_holding_days }} gun</dd>
+            </div>
+            {% endif %}
+            {% if stats.avg_delay_cost_pct is not none %}
+            <div class="flex justify-between">
+                <dt class="text-txt-muted">15 dk gecikme maliyeti (ort.)</dt>
+                <dd class="{{ 'text-negative' if stats.avg_delay_cost_pct > 0 else 'text-positive' }} font-medium">
+                    {{ "%+.2f"|format(stats.avg_delay_cost_pct) }}%
+                </dd>
+            </div>
+            {% endif %}
+        </dl>
+    </div>
+
+    <div class="bg-surface-raised border border-border rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-txt-secondary mb-3">Cikis Tipleri &amp; Skor Dilimleri</h2>
+        <div class="flex flex-wrap gap-2 mb-4">
+            {% for etype, count in stats.exit_counts.items() %}
+            <span class="px-2 py-1 rounded-lg text-xs font-medium bg-accent/10 text-txt-secondary">
+                {{ STATUS_TR.get(etype, etype|upper) }}: {{ count }}
+            </span>
+            {% endfor %}
+        </div>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-[11px] text-txt-ghost uppercase text-left">
+                    <th class="pb-2">Skor</th><th class="pb-2">Islem</th>
+                    <th class="pb-2">Win Rate</th><th class="pb-2">Ort. Getiri</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in stats.score_buckets %}
+                <tr class="border-t border-border">
+                    <td class="py-1.5 text-txt-primary font-medium">{{ b.label }}</td>
+                    <td class="py-1.5 text-txt-muted">{{ b.trade_count }}</td>
+                    <td class="py-1.5 text-txt-muted">{{ "%.0f"|format(b.win_rate) }}%</td>
+                    <td class="py-1.5 {{ 'text-positive' if b.avg_pnl_pct >= 0 else 'text-negative' }}">
+                        {{ "%+.2f"|format(b.avg_pnl_pct) }}%
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Kumulatif getiri egrisi -->
+{% if stats.cumulative_curve|length >= 2 %}
+<div class="bg-surface-raised border border-border rounded-xl p-4 mb-6">
+    <h2 class="text-sm font-semibold text-txt-secondary mb-3">Kumulatif Getiri (kapanan islemler)</h2>
+    <div class="h-48"><canvas id="whatifCurve"></canvas></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function() {
+    const curve = {{ stats.cumulative_curve|tojson }};
+    const ctx = document.getElementById('whatifCurve').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: curve.map(p => p[0]),
+            datasets: [{
+                data: curve.map(p => p[1]),
+                borderColor: '#66bb6a',
+                borderWidth: 1.5,
+                fill: true,
+                backgroundColor: 'rgba(102, 187, 106, 0.05)',
+                pointRadius: 2,
+                tension: 0.1,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { ticks: { callback: v => v + '%' } }
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+
+<!-- Islem tablosu -->
+<div class="bg-surface-raised border border-border rounded-xl overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-[11px] text-txt-ghost uppercase text-left border-b border-border">
+                    <th class="px-4 py-2.5">Sembol</th>
+                    <th class="px-4 py-2.5">Sinyal</th>
+                    <th class="px-4 py-2.5">Skor</th>
+                    <th class="px-4 py-2.5">Giris</th>
+                    <th class="px-4 py-2.5">Strateji</th>
+                    <th class="px-4 py-2.5">Durum</th>
+                    <th class="px-4 py-2.5">Al-Tut</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in trades %}
+                <tr class="border-b border-border/50">
+                    <td class="px-4 py-2.5">
+                        <a href="/symbol/{{ t.symbol }}" class="text-accent font-medium hover:underline">{{ t.symbol }}</a>
+                    </td>
+                    <td class="px-4 py-2.5 text-txt-muted whitespace-nowrap">{{ t.signal_time_local }}</td>
+                    <td class="px-4 py-2.5 text-txt-primary">{{ t.score }}</td>
+                    <td class="px-4 py-2.5 text-txt-primary whitespace-nowrap">
+                        {{ "%.2f"|format(t.entry_price) }}
+                        {% if t.entry_source == 'fallback' %}
+                        <span class="text-txt-ghost text-xs" title="1h bar bulunamadi, sinyal fiyati kullanildi">*</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2.5 font-medium
+                        {% if t.strategy_pnl_pct is none %}text-txt-ghost
+                        {% elif t.strategy_pnl_pct >= 0 %}text-positive{% else %}text-negative{% endif %}">
+                        {% if t.strategy_pnl_pct is none %}—{% else %}{{ "%+.1f"|format(t.strategy_pnl_pct) }}%{% endif %}
+                    </td>
+                    <td class="px-4 py-2.5">
+                        {% if t.status == 'no_data' %}
+                        <span class="px-2 py-0.5 rounded text-xs bg-border/50 text-txt-ghost">VERI YOK</span>
+                        {% elif t.status == 'open' %}
+                        <span class="px-2 py-0.5 rounded text-xs bg-accent/10 text-accent">ACIK</span>
+                        {% else %}
+                        <span class="px-2 py-0.5 rounded text-xs bg-border/50 text-txt-secondary">{{ STATUS_TR.get(t.exit_type, t.exit_type|upper) }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2.5 font-medium
+                        {% if t.buyhold_pnl_pct is none %}text-txt-ghost
+                        {% elif t.buyhold_pnl_pct >= 0 %}text-positive{% else %}text-negative{% endif %}">
+                        {% if t.buyhold_pnl_pct is none %}—{% else %}{{ "%+.1f"|format(t.buyhold_pnl_pct) }}%{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<p class="text-xs text-txt-ghost mt-4">
+    Giris fiyatlari sinyalden sonraki ilk saatlik bar'in kapanisidir (15 dk veri gecikmesi modeli).
+    {% if stats.skipped_dedup %}{{ stats.skipped_dedup }} sinyal acik pozisyon nedeniyle atlandi.{% endif %}
+    {% if stats.no_data_count %}{{ stats.no_data_count }} islemde veri eksik.{% endif %}
+    * isaretli girislerde saatlik veri yoktu, sinyal fiyati kullanildi.
+</p>
+{% endif %}
+</div>

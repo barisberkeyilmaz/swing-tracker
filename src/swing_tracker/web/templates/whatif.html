@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}What-if — Swing Tracker{% endblock %}
+{% block nav_whatif %}text-accent bg-accent/10{% endblock %}
+{% block bottom_nav_whatif %}text-accent{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-txt-primary">What-if</h1>
+    <p class="text-sm text-txt-muted mt-1">
+        Uretilen sinyalleri alsaydim performansim ne olurdu?
+    </p>
+</div>
+
+<div hx-get="/whatif/results" hx-trigger="load" hx-swap="outerHTML">
+    <div class="bg-surface-raised border border-border rounded-xl p-8 text-center">
+        <div class="animate-pulse text-txt-muted text-sm">
+            Simulasyon calisiyor, fiyat verileri yukleniyor...
+        </div>
+    </div>
+</div>
+{% endblock %}
