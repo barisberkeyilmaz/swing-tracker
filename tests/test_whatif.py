@@ -378,3 +378,30 @@ class TestComputeStats:
         stats = compute_stats([], 0)
         assert stats.strategy.trade_count == 0
         assert stats.cumulative_curve == []
+
+
+class TestBuildWhatIfData:
+    def test_assembles_from_injected_fetchers(self, repo, monkeypatch):
+        from swing_tracker.web.routers import whatif as whatif_router
+
+        _log(repo, "THYAO", score=5, price=100.0, created_at="2026-06-21 07:30:00")
+
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)] * 3)
+        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
+
+        def fake_get_ohlcv(symbol, *, interval, **kwargs):
+            return hourly if interval == "1h" else daily
+
+        monkeypatch.setattr(whatif_router, "get_ohlcv", fake_get_ohlcv)
+        monkeypatch.setattr(
+            whatif_router.price_cache, "fetch_many", lambda syms: {"THYAO": 102.0}
+        )
+
+        class FakeConfig:
+            cache = None  # get_ohlcv mock'landigi icin kullanilmaz
+
+        trades, stats = whatif_router.build_whatif_data(repo, FakeConfig())
+
+        assert len(trades) == 1
+        assert trades[0].symbol == "THYAO"
+        assert stats.strategy.trade_count == 1
