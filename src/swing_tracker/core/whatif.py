@@ -7,7 +7,8 @@ Cikis kurallari backtest/exits.py ile ortak.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import statistics
+from dataclasses import dataclass, field
 from typing import Literal
 
 import pandas as pd
@@ -39,6 +40,44 @@ class WhatIfTrade:
     buyhold_pnl_pct: float | None = None
     current_price: float | None = None
     delay_cost_pct: float | None = None  # (entry - price_at_signal) / price_at_signal * 100
+
+
+_SCORE_BUCKETS = [("4-5", 4, 5), ("6-7", 6, 7), ("8+", 8, 10**9)]
+
+
+@dataclass
+class ModeStats:
+    trade_count: int = 0
+    open_count: int = 0
+    closed_count: int = 0
+    win_rate: float = 0.0
+    avg_pnl_pct: float = 0.0
+    median_pnl_pct: float = 0.0
+    total_pnl_pct: float = 0.0
+    best: tuple[str, float] | None = None
+    worst: tuple[str, float] | None = None
+    profit_factor: float | None = None
+
+
+@dataclass
+class ScoreBucket:
+    label: str
+    trade_count: int
+    win_rate: float
+    avg_pnl_pct: float
+
+
+@dataclass
+class WhatIfStats:
+    strategy: ModeStats
+    buyhold: ModeStats
+    exit_counts: dict[str, int] = field(default_factory=dict)
+    score_buckets: list[ScoreBucket] = field(default_factory=list)
+    avg_delay_cost_pct: float | None = None
+    avg_holding_days: float | None = None
+    cumulative_curve: list[tuple[str, float]] = field(default_factory=list)
+    skipped_dedup: int = 0
+    no_data_count: int = 0
 
 
 def find_entry(
@@ -219,3 +258,80 @@ def simulate_whatif(
             position_until[symbol] = None
 
     return trades, skipped
+
+
+def _mode_stats(
+    pairs: list[tuple[WhatIfTrade, float]], open_count: int, closed_count: int
+) -> ModeStats:
+    """pairs: (islem, o modun pnl_pct'si)."""
+    if not pairs:
+        return ModeStats()
+    pnls = [p for _, p in pairs]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    best = max(pairs, key=lambda x: x[1])
+    worst = min(pairs, key=lambda x: x[1])
+    pf = round(sum(wins) / abs(sum(losses)), 2) if losses and wins else (None if not losses else 0.0)
+    return ModeStats(
+        trade_count=len(pairs),
+        open_count=open_count,
+        closed_count=closed_count,
+        win_rate=round(len(wins) / len(pnls) * 100, 2),
+        avg_pnl_pct=round(sum(pnls) / len(pnls), 2),
+        median_pnl_pct=round(statistics.median(pnls), 2),
+        total_pnl_pct=round(sum(pnls), 2),
+        best=(best[0].symbol, best[1]),
+        worst=(worst[0].symbol, worst[1]),
+        profit_factor=pf,
+    )
+
+
+def compute_stats(trades: list[WhatIfTrade], skipped_dedup: int) -> WhatIfStats:
+    """Islem listesinden sayfa istatistiklerini uret."""
+    strat = [(t, t.strategy_pnl_pct) for t in trades if t.strategy_pnl_pct is not None]
+    buyhold = [(t, t.buyhold_pnl_pct) for t in trades if t.buyhold_pnl_pct is not None]
+    closed = [t for t, _ in strat if t.status == "closed"]
+    opened = [t for t, _ in strat if t.status == "open"]
+
+    exit_counts: dict[str, int] = {}
+    for t in closed:
+        exit_counts[t.exit_type] = exit_counts.get(t.exit_type, 0) + 1
+    if opened:
+        exit_counts["open"] = len(opened)
+
+    buckets = []
+    for label, lo, hi in _SCORE_BUCKETS:
+        in_bucket = [(t, p) for t, p in strat if lo <= t.score <= hi]
+        if not in_bucket:
+            continue
+        pnls = [p for _, p in in_bucket]
+        wins = [p for p in pnls if p > 0]
+        buckets.append(ScoreBucket(
+            label=label,
+            trade_count=len(in_bucket),
+            win_rate=round(len(wins) / len(pnls) * 100, 2),
+            avg_pnl_pct=round(sum(pnls) / len(pnls), 2),
+        ))
+
+    delays = [t.delay_cost_pct for t in trades if t.delay_cost_pct is not None]
+    holdings = [t.holding_days for t in closed if t.holding_days is not None]
+
+    curve: list[tuple[str, float]] = []
+    cum = 0.0
+    for t in sorted(closed, key=lambda t: t.exit_date or ""):
+        cum = round(cum + (t.strategy_pnl_pct or 0.0), 2)
+        curve.append((t.exit_date or "", cum))
+
+    return WhatIfStats(
+        strategy=_mode_stats(strat, open_count=len(opened), closed_count=len(closed)),
+        buyhold=_mode_stats(
+            buyhold, open_count=len(buyhold), closed_count=0
+        ),
+        exit_counts=exit_counts,
+        score_buckets=buckets,
+        avg_delay_cost_pct=round(sum(delays) / len(delays), 2) if delays else None,
+        avg_holding_days=round(sum(holdings) / len(holdings), 2) if holdings else None,
+        cumulative_curve=curve,
+        skipped_dedup=skipped_dedup,
+        no_data_count=sum(1 for t in trades if t.status == "no_data"),
+    )

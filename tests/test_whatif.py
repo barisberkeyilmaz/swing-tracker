@@ -8,7 +8,13 @@ import pandas as pd
 import pytest
 
 from swing_tracker.backtest.models import BacktestConfig
-from swing_tracker.core.whatif import atr_from_daily, find_entry, simulate_whatif
+from swing_tracker.core.whatif import (
+    WhatIfTrade,
+    atr_from_daily,
+    compute_stats,
+    find_entry,
+    simulate_whatif,
+)
 from swing_tracker.db.repository import Repository
 from swing_tracker.db.schema import create_all_tables
 
@@ -297,3 +303,78 @@ class TestSimulateWhatif:
             signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 102.0}, _bt_config()
         )
         assert trades[0].delay_cost_pct == pytest.approx(2.0)
+
+
+def _trade(symbol="THYAO", score=5, status="closed", spnl=None, bpnl=None,
+           exit_type=None, exit_date=None, holding=None, delay=None):
+    return WhatIfTrade(
+        signal_id=1, symbol=symbol, signal_time="2026-06-20 07:30:00", score=score,
+        price_at_signal=100.0, entry_price=100.0, entry_source="bar_1h",
+        stop_loss=96.0, tp1=103.0, tp2=106.0, status=status,
+        strategy_pnl_pct=spnl, exit_type=exit_type, exit_date=exit_date,
+        holding_days=holding, buyhold_pnl_pct=bpnl, delay_cost_pct=delay,
+    )
+
+
+class TestComputeStats:
+    def test_mode_stats_and_profit_factor(self):
+        trades = [
+            _trade(symbol="A", spnl=6.0, bpnl=3.0, exit_type="tp2",
+                   exit_date="2026-06-25", holding=5.0),
+            _trade(symbol="B", spnl=-4.0, bpnl=-2.0, exit_type="sl",
+                   exit_date="2026-06-22", holding=2.0),
+            _trade(symbol="C", status="open", spnl=2.0, bpnl=2.0),
+        ]
+        stats = compute_stats(trades, skipped_dedup=3)
+
+        s = stats.strategy
+        assert s.trade_count == 3
+        assert s.closed_count == 2 and s.open_count == 1
+        assert s.win_rate == pytest.approx(66.67, abs=0.01)
+        assert s.total_pnl_pct == pytest.approx(4.0)
+        assert s.median_pnl_pct == pytest.approx(2.0)
+        assert s.best == ("A", 6.0) and s.worst == ("B", -4.0)
+        assert s.profit_factor == pytest.approx(8.0 / 4.0)
+
+        assert stats.buyhold.trade_count == 3
+        assert stats.exit_counts == {"tp2": 1, "sl": 1, "open": 1}
+        assert stats.avg_holding_days == pytest.approx(3.5)
+        assert stats.skipped_dedup == 3
+        # Kumulatif egri exit_date sirasinda: B (-4), sonra A (+2)
+        assert stats.cumulative_curve == [("2026-06-22", -4.0), ("2026-06-25", 2.0)]
+
+    def test_profit_factor_none_when_no_losses(self):
+        trades = [_trade(spnl=5.0, bpnl=5.0, exit_type="tp1",
+                         exit_date="2026-06-25", holding=3.0)]
+        assert compute_stats(trades, 0).strategy.profit_factor is None
+
+    def test_score_buckets(self):
+        trades = [
+            _trade(symbol="A", score=4, spnl=2.0, exit_type="tp1",
+                   exit_date="2026-06-25", holding=1.0),
+            _trade(symbol="B", score=5, spnl=-2.0, exit_type="sl",
+                   exit_date="2026-06-25", holding=1.0),
+            _trade(symbol="C", score=8, spnl=6.0, exit_type="tp2",
+                   exit_date="2026-06-25", holding=1.0),
+        ]
+        buckets = compute_stats(trades, 0).score_buckets
+        assert [b.label for b in buckets] == ["4-5", "8+"]
+        b45 = buckets[0]
+        assert b45.trade_count == 2
+        assert b45.win_rate == pytest.approx(50.0)
+        assert b45.avg_pnl_pct == pytest.approx(0.0)
+
+    def test_no_data_and_delay(self):
+        trades = [
+            _trade(status="no_data", bpnl=1.0, delay=1.5),
+            _trade(spnl=2.0, status="open", delay=0.5),
+        ]
+        stats = compute_stats(trades, 0)
+        assert stats.no_data_count == 1
+        assert stats.avg_delay_cost_pct == pytest.approx(1.0)
+        assert stats.strategy.trade_count == 1  # no_data haric
+
+    def test_empty(self):
+        stats = compute_stats([], 0)
+        assert stats.strategy.trade_count == 0
+        assert stats.cumulative_curve == []
