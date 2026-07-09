@@ -236,6 +236,57 @@ class TestSimulateWhatif:
         # Al-tut guncel fiyatla yine hesaplanabilir
         assert trades[0].buyhold_pnl_pct == pytest.approx(2.0)
 
+    def test_tp1_partial_exit_then_open(self):
+        # Gun sonrasi bar: high 103.5 (TP1 vurur, TP2 vurmaz), low SL'in ustunde,
+        # close 103. Islem acik kalir; TP1'de satilan 50 lot gerceklesir,
+        # kalan 50 lot mark-to-market.
+        daily = _df_1d(
+            "2026-06-01",
+            _WARMUP + [(100.0, 100.0, 100.0, 100.0), (100.0, 103.5, 102.0, 103.0)],
+        )
+        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
+        signals = [_signal(1, "THYAO", "2026-06-21 07:30:00")]
+
+        trades, _ = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 103.0}, _bt_config()
+        )
+
+        t = trades[0]
+        assert t.status == "open"
+        # TP1: 50 lot @103 -> +150; kalan 50 lot (103-100)*50 -> +150
+        # toplam 300 / 10000 maliyet * 100 = 3.0%
+        assert t.strategy_pnl_pct == pytest.approx(3.0)
+
+    def test_tp1_tp2_then_trailing_close(self):
+        # Bar1: high 130 -> TP1 (50 lot @103, +150) ve TP2 (30 lot @106, +180)
+        # ayni barda vurur; highest_price 130'a guncellenir, low 105 trailing'i
+        # (130*0.8=104) tetiklemez.
+        # Bar2: high 106 (highest guncellenmez), low 98 <= trail 104 -> kalan
+        # 20 lot trailing'den 104'te kapanir: +80.
+        daily = _df_1d(
+            "2026-06-01",
+            _WARMUP
+            + [
+                (100.0, 100.0, 100.0, 100.0),   # giris gunu (kullanilmaz)
+                (100.0, 130.0, 105.0, 115.0),   # TP1 + TP2
+                (100.0, 106.0, 98.0, 99.0),     # trailing kapanis
+            ],
+        )
+        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
+        signals = [_signal(1, "THYAO", "2026-06-21 07:30:00")]
+
+        trades, _ = simulate_whatif(
+            signals, {"THYAO": hourly}, {"THYAO": daily}, {"THYAO": 99.0}, _bt_config()
+        )
+
+        t = trades[0]
+        assert t.status == "closed"
+        assert t.exit_type == "trailing"
+        # realized = 150 (tp1) + 180 (tp2) + 80 (trailing) = 410 / 10000 * 100 = 4.1%
+        # (her bacak yalnizca bir kez sayilirsa dogru deger budur; cift sayimda
+        # TP1/TP2 iki katina cikip 5.9% gibi yanlis bir sonuc verirdi)
+        assert t.strategy_pnl_pct == pytest.approx(4.1)
+
     def test_delay_cost(self):
         # price_at_signal 100, 1h giris 102 → gecikme maliyeti +2%
         daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 103.0, 99.5, 102.0)] * 2)

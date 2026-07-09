@@ -112,22 +112,27 @@ def _simulate_strategy(
     entry_day = pd.Timestamp(trade.signal_time).normalize()
     later = df_1d[df_1d.index.normalize() > entry_day]
 
+    # check_exits has an asymmetric contract: SL path appends to its local
+    # list and returns early (never reaches trade.exits.extend), while
+    # TP1/TP2/trailing paths fall through and DO get added to trade.exits.
+    # To avoid double-counting, accumulate exits from the return values only
+    # and never read bt.exits / bt.total_pnl.
+    exits_log: list = []
     for ts, row in later.iterrows():
-        exits = check_exits(
+        exits_log.extend(check_exits(
             bt, ts.date().isoformat(),
             float(row["High"]), float(row["Low"]), float(row["Close"]),
             bt_config,
-        )
-        # check_exits might return early without adding to trade.exits, so do it manually
-        bt.exits.extend(exits)
+        ))
         if bt.status == "closed":
             break
 
     cost = trade.entry_price * VIRTUAL_SHARES
+    realized = sum(e.pnl for e in exits_log)
     if bt.status == "closed":
         trade.status = "closed"
-        trade.strategy_pnl_pct = round(bt.total_pnl / cost * 100, 2)
-        last_exit = bt.exits[-1]
+        trade.strategy_pnl_pct = round(realized / cost * 100, 2)
+        last_exit = exits_log[-1]
         trade.exit_type = last_exit.exit_type
         trade.exit_date = last_exit.date
         trade.holding_days = float(
@@ -138,7 +143,7 @@ def _simulate_strategy(
         unrealized = 0.0
         if current_price is not None:
             unrealized = (current_price - trade.entry_price) * bt.remaining_shares
-        trade.strategy_pnl_pct = round((bt.total_pnl + unrealized) / cost * 100, 2)
+        trade.strategy_pnl_pct = round((realized + unrealized) / cost * 100, 2)
 
 
 def simulate_whatif(
@@ -208,6 +213,9 @@ def simulate_whatif(
         if trade.status == "closed":
             position_until[symbol] = pd.Timestamp(trade.exit_date)
         else:
-            position_until[symbol] = None  # acik veya no_data: sembol blokeli
+            # acik veya no_data: sembol blokeli. no_data icin bu kasitli —
+            # bilinmeyen durum acik pozisyon gibi ele alinir, tekrar sinyal
+            # gelene kadar sembol yeni islem uretmez.
+            position_until[symbol] = None
 
     return trades, skipped
