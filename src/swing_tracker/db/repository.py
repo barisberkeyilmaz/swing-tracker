@@ -245,6 +245,16 @@ class Repository:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_buy_signals_asc(self, min_score: int) -> list[dict]:
+        """What-if simulasyonu icin: esik ustu buy sinyalleri, kronolojik sirada."""
+        rows = self._conn.execute(
+            """SELECT * FROM signals_log
+               WHERE signal_type = 'buy' AND score >= ?
+               ORDER BY created_at ASC, id ASC""",
+            (min_score,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_unacted_signals(self) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM signals_log WHERE acted_on = 0 ORDER BY created_at DESC"
