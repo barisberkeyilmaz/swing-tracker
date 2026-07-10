@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 
+import pandas as pd
 import pytest
 
+from swing_tracker.backtest.models import BacktestConfig
 from swing_tracker.config import WhatIfConfig, load_config
+from swing_tracker.core.whatif_store import fill_pending, row_to_bt
 from swing_tracker.db.repository import Repository
 from swing_tracker.db.schema import create_all_tables
 
@@ -87,3 +90,104 @@ class TestWhatIfTradeCrud:
         rid = repo.insert_whatif_trade(_pending_fields(sid))
         with pytest.raises(ValueError):
             repo.update_whatif_trade(rid, {"symbol; DROP TABLE": 1})
+
+
+def _bt_config():
+    return BacktestConfig(
+        commission_pct=0.0, commission_fixed=0.0,
+        sl_atr_mult=2.0, tp1_atr_mult=1.5, tp1_exit_pct=0.50,
+        tp2_atr_mult=3.0, tp2_exit_pct=0.30, trailing_stop_pct=0.20,
+    )
+
+
+def _df_1h(start, closes):
+    idx = pd.date_range(start=start, periods=len(closes), freq="1h")
+    return pd.DataFrame(
+        {"Open": closes, "High": closes, "Low": closes, "Close": closes, "Volume": 1000},
+        index=idx,
+    )
+
+
+def _df_1d(start, rows):
+    idx = pd.date_range(start=start, periods=len(rows), freq="1D")
+    o, h, low, c = zip(*rows)
+    return pd.DataFrame(
+        {"Open": o, "High": h, "Low": low, "Close": c, "Volume": 1000}, index=idx
+    )
+
+
+_WARMUP = [(100.0, 101.0, 99.0, 100.0)] * 20  # ATR(14) = 2.0
+
+
+def _make_pending(repo, symbol="THYAO", signal_time="2026-06-21 07:30:00",
+                  score=5, price=100.0):
+    sid = _insert_signal(repo, symbol, signal_time, score * 10, price)
+    return repo.insert_whatif_trade(_pending_fields(sid, symbol, signal_time, score, price))
+
+
+class TestFillPending:
+    def test_fills_entry_and_levels(self, repo):
+        rid = _make_pending(repo)  # sinyal 2026-06-21 07:30
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)])
+        hourly = _df_1h("2026-06-21 06:00:00", [102.0] * 5)  # ilk bar >= 07:30 → 08:00, close 102
+
+        counts = fill_pending(repo, {"THYAO": hourly}, {"THYAO": daily}, _bt_config())
+
+        assert counts == {"opened": 1, "no_data": 0, "left_pending": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["id"] == rid
+        assert row["entry_price"] == 102.0
+        assert row["entry_source"] == "bar_1h"
+        assert row["stop_loss"] == pytest.approx(98.0)   # 102 - 2*2
+        assert row["tp1"] == pytest.approx(105.0)
+        assert row["remaining_shares"] == 100
+        assert row["highest_price"] == 102.0
+        assert row["last_update"] == "2026-06-21"
+        assert row["delay_cost_pct"] == pytest.approx(2.0)  # (102-100)/100
+
+    def test_no_hourly_falls_back(self, repo):
+        _make_pending(repo)
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)])
+
+        counts = fill_pending(repo, {"THYAO": None}, {"THYAO": daily}, _bt_config())
+
+        assert counts["opened"] == 1
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["entry_price"] == 100.0
+        assert row["entry_source"] == "fallback"
+        assert row["delay_cost_pct"] is None
+
+    def test_no_daily_marks_no_data(self, repo):
+        _make_pending(repo)
+        hourly = _df_1h("2026-06-21 06:00:00", [102.0] * 5)
+
+        counts = fill_pending(repo, {"THYAO": hourly}, {"THYAO": None}, _bt_config())
+
+        assert counts == {"opened": 0, "no_data": 1, "left_pending": 0}
+        row = repo.get_whatif_trades(status="no_data")[0]
+        assert row["entry_price"] == 102.0  # al-tut icin giris yine yazilir
+
+    def test_no_price_stays_pending(self, repo):
+        sid = _insert_signal(repo, "THYAO", "2026-06-21 07:30:00", 50, None)
+        repo.insert_whatif_trade({
+            "signal_id": sid, "symbol": "THYAO",
+            "signal_time": "2026-06-21 07:30:00", "score": 5,
+        })
+        counts = fill_pending(repo, {"THYAO": None}, {"THYAO": None}, _bt_config())
+        assert counts == {"opened": 0, "no_data": 0, "left_pending": 1}
+        assert len(repo.get_whatif_trades(status="pending")) == 1
+
+
+class TestRowToBt:
+    def test_reconstructs_state(self):
+        row = {
+            "symbol": "THYAO", "signal_time": "2026-06-21 07:30:00",
+            "entry_price": 102.0, "stop_loss": 98.0, "tp1": 105.0, "tp2": 108.0,
+            "remaining_shares": 50, "highest_price": 106.0, "tp1_hit": 1,
+        }
+        bt = row_to_bt(row)
+        assert bt.remaining_shares == 50
+        assert bt.tp1_hit is True
+        assert bt.highest_price == 106.0
+        assert bt.shares == 100  # VIRTUAL_SHARES — pnl_pct tabani
+        assert bt.status == "open"
