@@ -35,6 +35,8 @@ STATUS_TR = {
     "withdrawal": "CEKME",
     "buy": "ALIM",
     "sell": "SATIM",
+    "pending": "BEKLEMEDE",
+    "expired": "SURE DOLDU",
 }
 templates.env.globals["STATUS_TR"] = STATUS_TR
 

@@ -12,7 +12,18 @@
     </p>
 </div>
 
-<div hx-get="/whatif/results" hx-trigger="load" hx-swap="outerHTML">
+<div class="flex gap-2 mb-4">
+    <a href="/whatif?mode=takip" class="px-3 py-1.5 rounded-lg text-sm font-medium
+        {{ 'bg-accent/10 text-accent' if mode == 'takip' else 'text-txt-muted hover:text-txt-primary' }}">
+        Takip edilebilir
+    </a>
+    <a href="/whatif?mode=tum" class="px-3 py-1.5 rounded-lg text-sm font-medium
+        {{ 'bg-accent/10 text-accent' if mode == 'tum' else 'text-txt-muted hover:text-txt-primary' }}">
+        Tum sinyaller
+    </a>
+</div>
+
+<div hx-get="/whatif/results?mode={{ mode }}" hx-trigger="load" hx-swap="outerHTML">
     <div class="bg-surface-raised border border-border rounded-xl p-8 text-center">
         <div class="animate-pulse text-txt-muted text-sm">
             Simulasyon calisiyor, fiyat verileri yukleniyor...
