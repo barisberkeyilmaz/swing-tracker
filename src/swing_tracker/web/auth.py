@@ -32,7 +32,7 @@ if not SECRET_KEY:
         )
 
 SESSION_COOKIE = "st_session"
-SESSION_TTL = 86400  # 24 hours
+SESSION_TTL = 90 * 86400  # 90 gun — LAN/VPN arkasi kisisel kullanim, login surtunmesini azalt
 
 
 def auth_enabled() -> bool:
