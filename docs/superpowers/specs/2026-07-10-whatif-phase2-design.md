@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS whatif_trades (
     exit_type TEXT,                     -- tp1/tp2/trailing/sl/expired
     exit_date TEXT,
     strategy_pnl_pct REAL,              -- kapali/expired: nihai; open: son gunlenen
+    buyhold_pnl_pct REAL,               -- al-tut "su ana kadar": job her gun gunceller
+    last_close REAL,                    -- son bilinen gunluk kapanis (buyhold + expiry icin)
+    delay_cost_pct REAL,                -- (entry - price_at_signal) / price_at_signal * 100
     holding_days REAL,
     last_update TEXT,                   -- job'un isledigi son bar tarihi (ISO gun)
     created_at TEXT DEFAULT (datetime('now'))
@@ -58,6 +61,7 @@ deep_scan (18:30) OHLCV cache'i tazeledikten sonra çalışır; üç adım:
 
 1. **Pending doldurma:** her `pending` satır için sinyalden sonraki ilk 1h bar kapanışı (2 gün penceresi, Faz 1 kuralı) → `entry_price/entry_source`; sinyal gününden önceki günlük bar'lardan ATR → SL/TP1/TP2; `status='open'`, `remaining_shares=100`, `highest_price=entry`. 1h bar yoksa `fallback` girişle devam; ATR için günlük veri yoksa `status='no_data'`.
 2. **Open güncelleme:** her `open` satır durum alanlarından `BacktestTrade`'e yüklenir; `last_update`'ten sonraki günlük bar'lar sırayla `check_exits`'e verilir (komisyon 0). Kapanırsa `closed` + `exit_type/exit_date/strategy_pnl_pct/holding_days`; kapanmazsa durum alanları + `strategy_pnl_pct` (son kapanışla mark-to-market) + `last_update` güncellenir.
+   **2b. Al-tut güncelleme:** al-tut "şu ana kadar" tanımlı olduğundan strateji durumundan bağımsızdır: tablodaki **tüm** girişli satırların `buyhold_pnl_pct` ve `last_close` değerleri o günün kapanışıyla güncellenir (kapalı işlemler dahil — al-tut kolonu onlar için de yaşamaya devam eder). Semboller cache'li günlük OHLCV'den okunur.
 3. **Zaman aşımı:** `signal_time` üzerinden `max_holding_days`'i (config, varsayılan 60) aşan `open/pending/no_data` satırlar `expired` yapılır: `exit_type='expired'`, `exit_date` = job'un koştuğu gün (dedup filtresinin blok düşürmesi buna dayanır). Open satırda kalan paylar son bilinen kapanıştan realize edilir; pending/no_data'da `entry` olmadığından `strategy_pnl_pct` NULL kalır (istatistiklere zaten girmez).
 
 Hata toleransı: sembol bazlı hata satırı atlar (log), `last_update` ilerlemez → ertesi gün yeniden dener. Job Telegram bildirimi göndermez.
@@ -66,11 +70,11 @@ Config: `config.toml`'a `[whatif]` bölümü → `enabled = true`, `max_holding_
 
 ## Backfill — `python -m swing_tracker.whatif_backfill`
 
-Tek seferlik, idempotent CLI:
-- `signals_log`'daki eşik üstü buy sinyallerini okur (skor normalizasyonu: `indicator_values.entry_score`, fallback `score//10`).
-- Faz 1 retrospektif motoruyla (giriş + ATR + bar replay) her sinyali bugüne kadar simüle eder; nihai durumları `whatif_trades`'e yazar (`INSERT OR IGNORE` — `signal_id` UNIQUE).
+Tek seferlik, idempotent CLI. Ayrı bir retrospektif simülasyon yolu YOKTUR — backfill, günlük job'un aynı pipeline'ını kullanır:
+1. `signals_log`'daki eşik üstü buy sinyallerini okur (skor normalizasyonu: `indicator_values.entry_score`, fallback `score//10`) ve her birini `pending` satır olarak ekler (`INSERT OR IGNORE` — `signal_id` UNIQUE).
+2. `run_whatif_update`'i bir kez çalıştırır: pending doldurma tüm tarihî girişleri üretir, open güncelleme sinyal gününden bugüne bar replay yapar, expiry eski açıkları kapatır.
 - Bağımsız mod gereği dedup'suz: **tüm** sinyaller yazılır. Eski sinyallerde 1h penceresi aşıldığından girişler `fallback` işaretli olur — kabul edilmiş kusur, UI'da zaten işaretleniyor.
-- Deploy sonrası bir kez elle çalıştırılır.
+- Deploy sonrası bir kez elle çalıştırılır; tekrar çalıştırmak zararsız.
 
 ## Okuma yolu + UI
 
