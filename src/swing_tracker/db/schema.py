@@ -134,11 +134,42 @@ TABLES = [
         fetched_at TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS whatif_trades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_id INTEGER NOT NULL UNIQUE REFERENCES signals_log(id),
+        symbol TEXT NOT NULL,
+        signal_time TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        price_at_signal REAL,
+        entry_price REAL,
+        entry_source TEXT CHECK(entry_source IN ('bar_1h','fallback')),
+        stop_loss REAL, tp1 REAL, tp2 REAL,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK(status IN ('pending','open','closed','expired','no_data')),
+        remaining_shares INTEGER,
+        realized_pnl REAL DEFAULT 0,
+        highest_price REAL,
+        tp1_hit INTEGER DEFAULT 0,
+        exit_type TEXT,
+        exit_date TEXT,
+        strategy_pnl_pct REAL,
+        buyhold_pnl_pct REAL,
+        last_close REAL,
+        delay_cost_pct REAL,
+        holding_days REAL,
+        last_update TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol_interval "
     "ON ohlcv_cache(symbol, interval, bar_ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_whatif_trades_status ON whatif_trades(status)",
+    "CREATE INDEX IF NOT EXISTS idx_whatif_trades_symbol "
+    "ON whatif_trades(symbol, signal_time)",
 ]
 
 
