@@ -12,7 +12,9 @@ from swing_tracker.core.whatif import (
     WhatIfTrade,
     atr_from_daily,
     compute_stats,
+    dedup_filter,
     find_entry,
+    normalize_signal_score,
     simulate_whatif,
 )
 from swing_tracker.db.repository import Repository
@@ -389,6 +391,61 @@ class TestComputeStats:
         assert stats.cumulative_curve == []
 
 
+class TestDedupFilter:
+    def _t(self, symbol, signal_time, status="closed", exit_date=None):
+        t = _trade(symbol=symbol, status=status, spnl=1.0 if status != "pending" else None,
+                   exit_type="tp1" if status in ("closed", "expired") else None,
+                   exit_date=exit_date, holding=1.0)
+        t.signal_time = signal_time
+        return t
+
+    def test_open_blocks_later_signal(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", status="open"),
+            self._t("THYAO", "2026-07-02 08:00:00", status="open"),
+            self._t("ASELS", "2026-07-02 09:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert [t.symbol for t in kept] == ["THYAO", "ASELS"]
+        assert skipped == 1
+
+    def test_closed_allows_after_exit(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", exit_date="2026-07-03"),
+            self._t("THYAO", "2026-07-04 08:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert len(kept) == 2 and skipped == 0
+
+    def test_closed_blocks_before_exit(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", exit_date="2026-07-10"),
+            self._t("THYAO", "2026-07-05 08:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert len(kept) == 1 and skipped == 1
+
+    def test_expired_releases_block(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", status="expired", exit_date="2026-07-03"),
+            self._t("THYAO", "2026-07-04 08:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert len(kept) == 2 and skipped == 0
+
+
+class TestExpiredInStats:
+    def test_expired_counts_as_closed(self):
+        trades = [
+            _trade(symbol="A", status="expired", spnl=-2.0, exit_type="expired",
+                   exit_date="2026-07-05", holding=60.0),
+        ]
+        stats = compute_stats(trades, 0)
+        assert stats.strategy.closed_count == 1
+        assert stats.exit_counts == {"expired": 1}
+        assert stats.cumulative_curve == [("2026-07-05", -2.0)]
+
+
 class TestBuildWhatIfData:
     def test_assembles_from_injected_fetchers(self, repo, monkeypatch):
         from swing_tracker.web.routers import whatif as whatif_router
@@ -422,31 +479,21 @@ class TestBuildWhatIfData:
 
 class TestEntryScore:
     def test_indicator_values_entry_score_wins(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 60, "indicator_values": '{"entry_score": 6, "reasons": "x"}'}
-        assert _entry_score(sig) == 6
+        assert normalize_signal_score(sig) == 6
 
     def test_missing_entry_score_falls_back_to_score_div_10(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 50, "indicator_values": '{"reasons": "x"}'}
-        assert _entry_score(sig) == 5
+        assert normalize_signal_score(sig) == 5
 
     def test_malformed_json_falls_back_to_score_div_10(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 40, "indicator_values": "not json"}
-        assert _entry_score(sig) == 4
+        assert normalize_signal_score(sig) == 4
 
     def test_legacy_row_small_score_unscaled(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 5, "indicator_values": ""}
-        assert _entry_score(sig) == 5
+        assert normalize_signal_score(sig) == 5
 
     def test_score_none_returns_zero(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": None, "indicator_values": None}
-        assert _entry_score(sig) == 0
+        assert normalize_signal_score(sig) == 0

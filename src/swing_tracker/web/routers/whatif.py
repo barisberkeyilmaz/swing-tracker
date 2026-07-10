@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import json
 import logging
 
 from fastapi import APIRouter, Request
@@ -13,7 +12,13 @@ from fastapi.responses import HTMLResponse
 from swing_tracker.backtest.runner import parse_config_from_toml
 from swing_tracker.core.ohlcv_cache import get_ohlcv
 from swing_tracker.core.scanner import MIN_ENTRY_SCORE
-from swing_tracker.core.whatif import WhatIfStats, WhatIfTrade, compute_stats, simulate_whatif
+from swing_tracker.core.whatif import (
+    WhatIfStats,
+    WhatIfTrade,
+    compute_stats,
+    normalize_signal_score,
+    simulate_whatif,
+)
 from swing_tracker.web.dependencies import get_config, get_repo, templates
 from swing_tracker.web.helpers import localize_signal_timestamps
 from swing_tracker.web.price_cache import price_cache
@@ -27,27 +32,11 @@ _DAILY_PERIOD = "1y"
 _HOURLY_PERIOD = "3mo"
 
 
-def _entry_score(sig: dict) -> int:
-    """signals_log.score = entry_score * 10 (scanner boyle yazar).
-
-    indicator_values JSON'daki entry_score birincil kaynak; yoksa score/10'a,
-    o da yoksa score'un kendisine duser.
-    """
-    try:
-        values = json.loads(sig.get("indicator_values") or "{}")
-        if "entry_score" in values:
-            return int(values["entry_score"])
-    except (json.JSONDecodeError, TypeError, ValueError):
-        pass
-    score = sig.get("score") or 0
-    return score // 10 if score >= 10 else score
-
-
 def build_whatif_data(repo, config) -> tuple[list[WhatIfTrade], WhatIfStats]:
     """Sinyalleri cek, OHLCV + guncel fiyatlari topla, simulasyonu kostur. Sync/blocking."""
     signals = repo.get_buy_signals_asc(min_score=MIN_ENTRY_SCORE * 10)
     for sig in signals:
-        sig["score"] = _entry_score(sig)
+        sig["score"] = normalize_signal_score(sig)
     symbols = list(dict.fromkeys(s["symbol"] for s in signals))
 
     ohlcv_1h = {}
