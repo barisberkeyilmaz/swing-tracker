@@ -370,3 +370,21 @@ class TestScannerWhatIfHook:
             lambda fields: (_ for _ in ()).throw(RuntimeError("db hatasi")),
         )
         assert scanner._log_scored_signal(_make_scored()) is True  # sinyal yine loglanir
+
+
+class TestBackfill:
+    def test_inserts_pending_rows_idempotent(self, repo):
+        from swing_tracker.whatif_backfill import backfill_signals
+        _insert_signal(repo, "THYAO", "2026-04-01 07:30:00", score=50, price=100.0)
+        _insert_signal(repo, "ASELS", "2026-04-02 07:30:00", score=60, price=50.0)
+        _insert_signal(repo, "ZAYIF", "2026-04-03 07:30:00", score=30, price=10.0)  # esik alti
+
+        first = backfill_signals(repo)
+        assert first == {"inserted": 2, "skipped_existing": 0}
+        rows = repo.get_whatif_trades(status="pending")
+        assert {r["symbol"] for r in rows} == {"THYAO", "ASELS"}
+        assert rows[0]["score"] == 5  # entry_score olcegi
+
+        second = backfill_signals(repo)
+        assert second == {"inserted": 0, "skipped_existing": 2}
+        assert len(repo.get_whatif_trades()) == 2
