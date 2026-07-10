@@ -9,7 +9,7 @@ import pytest
 
 from swing_tracker.backtest.models import BacktestConfig
 from swing_tracker.config import WhatIfConfig, load_config
-from swing_tracker.core.whatif_store import fill_pending, row_to_bt
+from swing_tracker.core.whatif_store import expire_stale, fill_pending, refresh_buyhold, row_to_bt, update_open
 from swing_tracker.db.repository import Repository
 from swing_tracker.db.schema import create_all_tables
 
@@ -123,6 +123,116 @@ def _make_pending(repo, symbol="THYAO", signal_time="2026-06-21 07:30:00",
                   score=5, price=100.0):
     sid = _insert_signal(repo, symbol, signal_time, score * 10, price)
     return repo.insert_whatif_trade(_pending_fields(sid, symbol, signal_time, score, price))
+
+
+def _make_open(repo, symbol="THYAO", signal_time="2026-06-21 07:30:00",
+               entry=100.0, sl=96.0, tp1=103.0, tp2=106.0,
+               remaining=100, tp1_hit=0, highest=None, realized=0.0,
+               last_update="2026-06-21"):
+    rid = _make_pending(repo, symbol, signal_time)
+    repo.update_whatif_trade(rid, {
+        "status": "open", "entry_price": entry, "entry_source": "bar_1h",
+        "stop_loss": sl, "tp1": tp1, "tp2": tp2,
+        "remaining_shares": remaining, "tp1_hit": tp1_hit,
+        "highest_price": highest or entry, "realized_pnl": realized,
+        "last_update": last_update,
+    })
+    return rid
+
+
+class TestUpdateOpen:
+    def test_sl_closes(self, repo):
+        _make_open(repo)
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (100.0, 100.0, 90.0, 92.0)])
+        counts = update_open(repo, {"THYAO": daily}, _bt_config())
+
+        assert counts == {"updated": 0, "closed": 1}
+        row = repo.get_whatif_trades(status="closed")[0]
+        assert row["exit_type"] == "sl"
+        assert row["exit_date"] == "2026-06-22"
+        assert row["strategy_pnl_pct"] == pytest.approx(-4.0)  # (96-100)*100/10000
+        assert row["holding_days"] == pytest.approx(1.0)
+
+    def test_tp1_partial_stays_open_and_resumes(self, repo):
+        _make_open(repo)
+        # Gun 1 (06-22): high 103.5 -> TP1, 50 pay @103 (+150); kapanis 103
+        daily1 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 103.5, 102.0, 103.0)])
+        update_open(repo, {"THYAO": daily1}, _bt_config())
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["remaining_shares"] == 50
+        assert row["tp1_hit"] == 1
+        assert row["last_update"] == "2026-06-22"
+        # mark-to-market: (150 + (103-100)*50) / 10000 * 100 = 3.0
+        assert row["strategy_pnl_pct"] == pytest.approx(3.0)
+
+        # Gun 2 (06-23): ayni bar'lar + trailing tetikleyen dusus.
+        # highest=103.5 -> trail 82.8; low 80 -> kalan 50 pay 82.8'den kapanir.
+        daily2 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 103.5, 102.0, 103.0),
+                                                  (100.0, 100.0, 80.0, 81.0)])
+        counts = update_open(repo, {"THYAO": daily2}, _bt_config())
+        assert counts["closed"] == 1
+        row = repo.get_whatif_trades(status="closed")[0]
+        assert row["exit_type"] == "trailing"
+        # 150 + (82.8-100)*50 = 150 - 860 = -710 -> -7.1%
+        assert row["strategy_pnl_pct"] == pytest.approx(-7.1)
+
+    def test_no_new_bars_idempotent(self, repo):
+        _make_open(repo, last_update="2026-06-22")
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (100.0, 100.0, 90.0, 92.0)])
+        counts = update_open(repo, {"THYAO": daily}, _bt_config())
+        assert counts == {"updated": 0, "closed": 0}
+
+    def test_missing_data_skips_row(self, repo):
+        _make_open(repo)
+        counts = update_open(repo, {}, _bt_config())
+        assert counts == {"updated": 0, "closed": 0}
+        assert repo.get_whatif_trades(status="open")[0]["last_update"] == "2026-06-21"
+
+
+class TestRefreshBuyhold:
+    def test_updates_all_rows_with_entry(self, repo):
+        _make_open(repo, "THYAO")
+        rid2 = _make_open(repo, "ASELS", signal_time="2026-06-20 07:30:00")
+        repo.update_whatif_trade(rid2, {"status": "closed", "exit_type": "sl",
+                                        "exit_date": "2026-06-22"})
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 110.0)])
+
+        n = refresh_buyhold(repo, {"THYAO": daily, "ASELS": daily})
+
+        assert n == 2
+        for row in repo.get_whatif_trades():
+            assert row["last_close"] == 110.0
+            assert row["buyhold_pnl_pct"] == pytest.approx(10.0)
+
+
+class TestExpireStale:
+    def test_open_expires_with_pnl(self, repo):
+        rid = _make_open(repo, signal_time="2026-04-01 07:30:00", last_update="2026-04-01")
+        repo.update_whatif_trade(rid, {"last_close": 95.0})
+
+        n = expire_stale(repo, today="2026-07-10", max_holding_days=60)
+
+        assert n == 1
+        row = repo.get_whatif_trades(status="expired")[0]
+        assert row["exit_type"] == "expired"
+        assert row["exit_date"] == "2026-07-10"
+        assert row["strategy_pnl_pct"] == pytest.approx(-5.0)  # (95-100)*100/10000
+        assert row["remaining_shares"] == 0
+
+    def test_pending_expires_without_pnl(self, repo):
+        _make_pending(repo, signal_time="2026-04-01 07:30:00")
+        n = expire_stale(repo, today="2026-07-10", max_holding_days=60)
+        assert n == 1
+        row = repo.get_whatif_trades(status="expired")[0]
+        assert row["strategy_pnl_pct"] is None
+
+    def test_fresh_rows_untouched(self, repo):
+        _make_open(repo, signal_time="2026-07-01 07:30:00")
+        assert expire_stale(repo, today="2026-07-10", max_holding_days=60) == 0
 
 
 class TestFillPending:
