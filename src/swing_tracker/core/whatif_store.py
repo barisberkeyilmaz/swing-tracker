@@ -118,9 +118,6 @@ def update_open(repo: Repository, ohlcv_1d: OhlcvMap, bt_config: BacktestConfig)
             continue
 
         bt = row_to_bt(row)
-        # After TP1 is hit, disable SL so trailing stop can work
-        if bt.tp1_hit:
-            bt.stop_loss = -float('inf')
 
         # check_exits'in donen listesini biriktir; bt.exits/total_pnl OKUMA
         # (SL yolu trade.exits'e yazmaz, TP yollari yazar — cift sayim tuzagi).

@@ -154,12 +154,15 @@ class TestUpdateOpen:
         assert row["strategy_pnl_pct"] == pytest.approx(-4.0)  # (96-100)*100/10000
         assert row["holding_days"] == pytest.approx(1.0)
 
-    def test_tp1_partial_stays_open_and_resumes(self, repo):
+    def test_tp1_partial_exit_then_open(self, repo):
         _make_open(repo)
-        # Gun 1 (06-22): high 103.5 -> TP1, 50 pay @103 (+150); kapanis 103
-        daily1 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
-                                                  (103.0, 103.5, 102.0, 103.0)])
-        update_open(repo, {"THYAO": daily1}, _bt_config())
+        # Gun 1 (06-22): high 103.5 -> TP1, 50 pay @103 (+150); kapanis 103.
+        # low 102 > SL 96, SL devrede kalir (check_exits SL'i once kontrol eder).
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (103.0, 103.5, 102.0, 103.0)])
+        counts = update_open(repo, {"THYAO": daily}, _bt_config())
+
+        assert counts == {"updated": 1, "closed": 0}
         row = repo.get_whatif_trades(status="open")[0]
         assert row["remaining_shares"] == 50
         assert row["tp1_hit"] == 1
@@ -167,17 +170,36 @@ class TestUpdateOpen:
         # mark-to-market: (150 + (103-100)*50) / 10000 * 100 = 3.0
         assert row["strategy_pnl_pct"] == pytest.approx(3.0)
 
-        # Gun 2 (06-23): ayni bar'lar + trailing tetikleyen dusus.
-        # highest=103.5 -> trail 82.8; low 80 -> kalan 50 pay 82.8'den kapanir.
+    def test_tp1_tp2_then_trailing_close(self, repo):
+        _make_open(repo)
+        # Gun 1 (06-22): high 126 -> ayni bar'da TP1 (50 pay@103, +150) ve
+        # TP2 (30 pay@106, +180) tetiklenir; low 102 > SL 96, SL devrede kalir
+        # ama tetiklenmez. highest 126 -> trail 100.8; low 102 > 100.8 -> trailing henuz yok.
+        daily1 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 126.0, 102.0, 120.0)])
+        counts1 = update_open(repo, {"THYAO": daily1}, _bt_config())
+
+        assert counts1 == {"updated": 1, "closed": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["remaining_shares"] == 20
+        assert row["tp1_hit"] == 1
+        assert row["last_update"] == "2026-06-22"
+        # realized 330 (150+180) + unrealized (120-100)*20=400 -> 730/10000*100 = 7.3
+        assert row["strategy_pnl_pct"] == pytest.approx(7.3)
+
+        # Gun 2 (06-23): low 99 > SL 96 (SL tetiklenmez) ama trail 100.8'in altinda
+        # -> kalan 20 pay trailing'den 100.8'de kapanir. (100.8-100)*20 = +16.
         daily2 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
-                                                  (103.0, 103.5, 102.0, 103.0),
-                                                  (100.0, 100.0, 80.0, 81.0)])
-        counts = update_open(repo, {"THYAO": daily2}, _bt_config())
-        assert counts["closed"] == 1
+                                                  (103.0, 126.0, 102.0, 120.0),
+                                                  (100.0, 100.0, 99.0, 99.5)])
+        counts2 = update_open(repo, {"THYAO": daily2}, _bt_config())
+
+        assert counts2 == {"updated": 0, "closed": 1}
         row = repo.get_whatif_trades(status="closed")[0]
         assert row["exit_type"] == "trailing"
-        # 150 + (82.8-100)*50 = 150 - 860 = -710 -> -7.1%
-        assert row["strategy_pnl_pct"] == pytest.approx(-7.1)
+        assert row["exit_date"] == "2026-06-23"
+        # 150 + 180 + 16 = 346 -> 3.46%
+        assert row["strategy_pnl_pct"] == pytest.approx(3.46)
 
     def test_no_new_bars_idempotent(self, repo):
         _make_open(repo, last_update="2026-06-22")
