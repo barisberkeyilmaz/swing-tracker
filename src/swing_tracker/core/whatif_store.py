@@ -22,6 +22,14 @@ OhlcvMap = dict[str, "pd.DataFrame | None"]
 
 def row_to_bt(row: dict) -> BacktestTrade:
     """Open satirin durum alanlarindan BacktestTrade kur (incremental replay icin)."""
+    remaining = row["remaining_shares"]
+    if not remaining or remaining <= 0:
+        # BacktestTrade.__post_init__ remaining_shares=0'i sessizce shares'e
+        # geri doldurur — bozuk 'open' satiri tam pozisyon olarak diriltmek
+        # yerine yuksek sesle patla.
+        raise ValueError(
+            f"row_to_bt: {row['symbol']} acik satirda remaining_shares={remaining}"
+        )
     return BacktestTrade(
         symbol=row["symbol"],
         direction="long",
@@ -34,7 +42,7 @@ def row_to_bt(row: dict) -> BacktestTrade:
         status="open",
         highest_price=row["highest_price"] or row["entry_price"],
         tp1_hit=bool(row["tp1_hit"]),
-        remaining_shares=row["remaining_shares"],
+        remaining_shares=remaining,
     )
 
 

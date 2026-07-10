@@ -191,3 +191,12 @@ class TestRowToBt:
         assert bt.highest_price == 106.0
         assert bt.shares == 100  # VIRTUAL_SHARES — pnl_pct tabani
         assert bt.status == "open"
+
+    def test_zero_remaining_raises(self):
+        row = {
+            "symbol": "THYAO", "signal_time": "2026-06-21 07:30:00",
+            "entry_price": 102.0, "stop_loss": 98.0, "tp1": 105.0, "tp2": 108.0,
+            "remaining_shares": 0, "highest_price": 106.0, "tp1_hit": 1,
+        }
+        with pytest.raises(ValueError):
+            row_to_bt(row)
