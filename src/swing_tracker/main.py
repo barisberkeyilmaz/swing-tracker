@@ -125,6 +125,15 @@ def job_build_universe(builder: UniverseBuilder):
         logger.exception("Universe build hatasi")
 
 
+def job_whatif_update(repo, config):
+    """Gunluk what-if guncellemesi: pending doldur, aciklari ilerlet, expire et."""
+    from swing_tracker.core.whatif_store import run_whatif_update
+    try:
+        run_whatif_update(repo, config)
+    except Exception:
+        logger.exception("whatif_update job hatasi")
+
+
 # ── Main ──
 
 
@@ -237,6 +246,16 @@ def main():
         id="monitor",
         name="Position Monitor",
     )
+
+    # What-if gunluk guncelleme: Pzt-Cum 18:40 (deep_scan 18:30'dan sonra)
+    if config.whatif.enabled:
+        _scheduler.add_job(
+            job_whatif_update,
+            CronTrigger(day_of_week="mon-fri", hour=18, minute=40, timezone=tz),
+            args=[repo, config],
+            id="whatif_update",
+            name="What-If Update",
+        )
 
     # Daily snapshot: Mon-Fri at 18:45
     _scheduler.add_job(

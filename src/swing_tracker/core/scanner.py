@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import borsapy as bp
 import pandas as pd
@@ -519,7 +520,7 @@ class Scanner:
         if self._repo.has_recent_signal(scored.symbol, "buy"):
             logger.debug(f"{scored.symbol}: Son 24 saatte sinyal var, atlanıyor")
             return False
-        self._repo.log_signal(
+        signal_id = self._repo.log_signal(
             symbol=scored.symbol,
             signal_type="buy",
             indicator="multi_tf_score",
@@ -528,4 +529,16 @@ class Scanner:
             indicator_values={"entry_score": scored.entry_score, "reasons": ", ".join(scored.reasons)},
             score=scored.entry_score * 10,
         )
+        # What-if: sinyali kalici sanal islem olarak da baslat (pending; girisi
+        # aksamki whatif_update doldurur). Hook hatasi sinyal akisini bozmaz.
+        try:
+            self._repo.insert_whatif_trade({
+                "signal_id": signal_id,
+                "symbol": scored.symbol,
+                "signal_time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "score": scored.entry_score,
+                "price_at_signal": scored.price,
+            })
+        except Exception:
+            logger.exception(f"{scored.symbol}: whatif pending kaydi eklenemedi")
         return True

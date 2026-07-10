@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 from swing_tracker.backtest.models import BacktestConfig
-from swing_tracker.config import WhatIfConfig, load_config
+from swing_tracker.config import CacheConfig, Config, LiquidityConfig, ScannerConfig, WhatIfConfig, load_config
+from swing_tracker.core.scanner import Scanner, ScoredCandidate
 from swing_tracker.core.whatif_store import expire_stale, fill_pending, refresh_buyhold, row_to_bt, update_open
 from swing_tracker.db.repository import Repository
 from swing_tracker.db.schema import create_all_tables
@@ -332,3 +333,40 @@ class TestRowToBt:
         }
         with pytest.raises(ValueError):
             row_to_bt(row)
+
+
+def _make_scanner(repo):
+    c = Config()
+    c.scanner = ScannerConfig(universe="XTUMY", market_regime_index="XU100")
+    c.cache = CacheConfig(enabled=True)
+    c.liquidity = LiquidityConfig(enabled=False)
+    return Scanner(repo, c, universe_builder=None)
+
+
+def _make_scored(symbol="THYAO", entry_score=5, price=100.0):
+    return ScoredCandidate(
+        symbol=symbol, price=price, entry_score=entry_score,
+        reasons=["RSI=35"], analysis=None,
+    )
+
+
+class TestScannerWhatIfHook:
+    def test_logged_signal_creates_pending_row(self, repo):
+        scanner = _make_scanner(repo)
+
+        assert scanner._log_scored_signal(_make_scored()) is True
+
+        rows = repo.get_whatif_trades(status="pending")
+        assert len(rows) == 1
+        assert rows[0]["symbol"] == "THYAO"
+        assert rows[0]["score"] == 5           # entry_score olcegi
+        assert rows[0]["price_at_signal"] == 100.0
+        assert rows[0]["signal_id"] is not None
+
+    def test_hook_failure_does_not_break_signal_logging(self, repo, monkeypatch):
+        scanner = _make_scanner(repo)
+        monkeypatch.setattr(
+            repo, "insert_whatif_trade",
+            lambda fields: (_ for _ in ()).throw(RuntimeError("db hatasi")),
+        )
+        assert scanner._log_scored_signal(_make_scored()) is True  # sinyal yine loglanir
