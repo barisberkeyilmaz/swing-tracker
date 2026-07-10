@@ -7,6 +7,7 @@ Cikis kurallari backtest/exits.py ile ortak.
 
 from __future__ import annotations
 
+import json
 import statistics
 from dataclasses import dataclass, field
 from typing import Literal
@@ -32,7 +33,7 @@ class WhatIfTrade:
     stop_loss: float
     tp1: float
     tp2: float
-    status: Literal["open", "closed", "no_data"]
+    status: Literal["pending", "open", "closed", "expired", "no_data"]
     strategy_pnl_pct: float | None = None
     exit_type: str | None = None      # kapali islemde son cikisin tipi
     exit_date: str | None = None      # kapali islemde son cikisin tarihi (ISO)
@@ -265,6 +266,47 @@ def simulate_whatif(
     return trades, skipped
 
 
+def normalize_signal_score(sig: dict) -> int:
+    """signals_log.score = entry_score * 10 (scanner boyle yazar).
+
+    indicator_values JSON'daki entry_score birincil kaynak; yoksa score/10'a,
+    o da yoksa score'un kendisine duser.
+    """
+    try:
+        values = json.loads(sig.get("indicator_values") or "{}")
+        if "entry_score" in values:
+            return int(values["entry_score"])
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    score = sig.get("score") or 0
+    return score // 10 if score >= 10 else score
+
+
+def dedup_filter(trades: list[WhatIfTrade]) -> tuple[list[WhatIfTrade], int]:
+    """'Takip edilebilir' gorunum: sembolde onceki islem hala aktifken
+    (open/pending/no_data, ya da kapanisi bu sinyalden sonra) gelen islemleri atar.
+
+    trades signal_time artan sirali olmali. (kalanlar, atlanan_sayisi) doner.
+    """
+    kept: list[WhatIfTrade] = []
+    skipped = 0
+    # symbol -> blok bitis Timestamp'i (None = suresiz aktif)
+    blocked_until: dict[str, pd.Timestamp | None] = {}
+
+    for t in trades:
+        if t.symbol in blocked_until:
+            until = blocked_until[t.symbol]
+            if until is None or pd.Timestamp(t.signal_time) <= until:
+                skipped += 1
+                continue
+        kept.append(t)
+        if t.status in ("closed", "expired"):
+            blocked_until[t.symbol] = pd.Timestamp(t.exit_date)
+        else:
+            blocked_until[t.symbol] = None
+    return kept, skipped
+
+
 def _mode_stats(
     pairs: list[tuple[WhatIfTrade, float]], open_count: int, closed_count: int
 ) -> ModeStats:
@@ -295,7 +337,7 @@ def compute_stats(trades: list[WhatIfTrade], skipped_dedup: int) -> WhatIfStats:
     """Islem listesinden sayfa istatistiklerini uret."""
     strat = [(t, t.strategy_pnl_pct) for t in trades if t.strategy_pnl_pct is not None]
     buyhold = [(t, t.buyhold_pnl_pct) for t in trades if t.buyhold_pnl_pct is not None]
-    closed = [t for t, _ in strat if t.status == "closed"]
+    closed = [t for t, _ in strat if t.status in ("closed", "expired")]
     opened = [t for t, _ in strat if t.status == "open"]
 
     exit_counts: dict[str, int] = {}

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
 
 
 class Repository:
@@ -157,10 +156,6 @@ class Repository:
         ).fetchone()
         return dict(row) if row else None
 
-    def delete_exit(self, exit_id: int) -> None:
-        self._conn.execute("DELETE FROM trade_exits WHERE id = ?", (exit_id,))
-        self._conn.commit()
-
     def get_all_trade_exits(self) -> dict[int, list[dict]]:
         """Tum exit'leri tek query'de cek, trade_id'ye gore grupla. N+1 kaciniri."""
         rows = self._conn.execute(
@@ -264,6 +259,57 @@ class Repository:
     def mark_signal_acted(self, signal_id: int) -> None:
         self._conn.execute(
             "UPDATE signals_log SET acted_on = 1 WHERE id = ?", (signal_id,)
+        )
+        self._conn.commit()
+
+    # ── What-if trades ──
+
+    _WHATIF_COLUMNS = {
+        "signal_id", "symbol", "signal_time", "score", "price_at_signal",
+        "entry_price", "entry_source", "stop_loss", "tp1", "tp2", "status",
+        "remaining_shares", "realized_pnl", "highest_price", "tp1_hit", "tp2_hit",
+        "exit_type", "exit_date", "strategy_pnl_pct", "buyhold_pnl_pct",
+        "last_close", "delay_cost_pct", "holding_days", "last_update",
+    }
+
+    def insert_whatif_trade(self, fields: dict) -> int | None:
+        """Sanal islem ekle (INSERT OR IGNORE — signal_id UNIQUE). None = zaten var."""
+        bad = set(fields) - self._WHATIF_COLUMNS
+        if bad:
+            raise ValueError(f"Bilinmeyen whatif_trades kolonlari: {bad}")
+        cols = list(fields.keys())
+        placeholders = ", ".join("?" for _ in cols)
+        cur = self._conn.execute(
+            f"INSERT OR IGNORE INTO whatif_trades ({', '.join(cols)}) "
+            f"VALUES ({placeholders})",
+            tuple(fields[c] for c in cols),
+        )
+        self._conn.commit()
+        return cur.lastrowid if cur.rowcount > 0 else None
+
+    def get_whatif_trades(self, status: str | None = None) -> list[dict]:
+        if status is not None:
+            rows = self._conn.execute(
+                "SELECT * FROM whatif_trades WHERE status = ? "
+                "ORDER BY signal_time ASC, id ASC",
+                (status,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM whatif_trades ORDER BY signal_time ASC, id ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_whatif_trade(self, trade_id: int, fields: dict) -> None:
+        bad = set(fields) - self._WHATIF_COLUMNS
+        if bad:
+            raise ValueError(f"Bilinmeyen whatif_trades kolonlari: {bad}")
+        if not fields:
+            return
+        sets = ", ".join(f"{c} = ?" for c in fields)
+        self._conn.execute(
+            f"UPDATE whatif_trades SET {sets} WHERE id = ?",
+            (*fields.values(), trade_id),
         )
         self._conn.commit()
 

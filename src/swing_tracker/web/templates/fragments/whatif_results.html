@@ -181,8 +181,8 @@
                     <td class="px-4 py-2.5 text-txt-muted whitespace-nowrap">{{ t.signal_time_local }}</td>
                     <td class="px-4 py-2.5 text-txt-primary">{{ t.score }}</td>
                     <td class="px-4 py-2.5 text-txt-primary whitespace-nowrap">
-                        {{ "%.2f"|format(t.entry_price) }}
-                        {% if t.entry_source == 'fallback' %}
+                        {% if t.entry_price %}{{ "%.2f"|format(t.entry_price) }}{% else %}—{% endif %}
+                        {% if t.entry_price and t.entry_source == 'fallback' %}
                         <span class="text-txt-ghost text-xs" title="1h bar bulunamadi, sinyal fiyati kullanildi">*</span>
                         {% endif %}
                     </td>
@@ -192,7 +192,9 @@
                         {% if t.strategy_pnl_pct is none %}—{% else %}{{ "%+.1f"|format(t.strategy_pnl_pct) }}%{% endif %}
                     </td>
                     <td class="px-4 py-2.5">
-                        {% if t.status == 'no_data' %}
+                        {% if t.status == 'pending' %}
+                        <span class="px-2 py-0.5 rounded text-xs bg-accent/10 text-txt-muted">BEKLEMEDE</span>
+                        {% elif t.status == 'no_data' %}
                         <span class="px-2 py-0.5 rounded text-xs bg-border/50 text-txt-ghost">VERI YOK</span>
                         {% elif t.status == 'open' %}
                         <span class="px-2 py-0.5 rounded text-xs bg-accent/10 text-accent">ACIK</span>
@@ -214,7 +216,7 @@
 
 <p class="text-xs text-txt-ghost mt-4">
     Giris fiyatlari sinyalden sonraki ilk saatlik bar'in kapanisidir (15 dk veri gecikmesi modeli).
-    {% if stats.skipped_dedup %}{{ stats.skipped_dedup }} sinyal acik pozisyon nedeniyle atlandi.{% endif %}
+    {% if mode == 'takip' and stats.skipped_dedup %}{{ stats.skipped_dedup }} sinyal acik pozisyon nedeniyle atlandi.{% endif %}
     {% if stats.no_data_count %}{{ stats.no_data_count }} islemde veri eksik.{% endif %}
     * isaretli girislerde saatlik veri yoktu, sinyal fiyati kullanildi.
 </p>

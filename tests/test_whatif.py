@@ -12,7 +12,9 @@ from swing_tracker.core.whatif import (
     WhatIfTrade,
     atr_from_daily,
     compute_stats,
+    dedup_filter,
     find_entry,
+    normalize_signal_score,
     simulate_whatif,
 )
 from swing_tracker.db.repository import Repository
@@ -389,64 +391,145 @@ class TestComputeStats:
         assert stats.cumulative_curve == []
 
 
-class TestBuildWhatIfData:
-    def test_assembles_from_injected_fetchers(self, repo, monkeypatch):
+class TestDedupFilter:
+    def _t(self, symbol, signal_time, status="closed", exit_date=None):
+        t = _trade(symbol=symbol, status=status, spnl=1.0 if status != "pending" else None,
+                   exit_type="tp1" if status in ("closed", "expired") else None,
+                   exit_date=exit_date, holding=1.0)
+        t.signal_time = signal_time
+        return t
+
+    def test_open_blocks_later_signal(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", status="open"),
+            self._t("THYAO", "2026-07-02 08:00:00", status="open"),
+            self._t("ASELS", "2026-07-02 09:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert [t.symbol for t in kept] == ["THYAO", "ASELS"]
+        assert skipped == 1
+
+    def test_closed_allows_after_exit(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", exit_date="2026-07-03"),
+            self._t("THYAO", "2026-07-04 08:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert len(kept) == 2 and skipped == 0
+
+    def test_closed_blocks_before_exit(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", exit_date="2026-07-10"),
+            self._t("THYAO", "2026-07-05 08:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert len(kept) == 1 and skipped == 1
+
+    def test_expired_releases_block(self):
+        trades = [
+            self._t("THYAO", "2026-07-01 08:00:00", status="expired", exit_date="2026-07-03"),
+            self._t("THYAO", "2026-07-04 08:00:00", status="open"),
+        ]
+        kept, skipped = dedup_filter(trades)
+        assert len(kept) == 2 and skipped == 0
+
+
+class TestExpiredInStats:
+    def test_expired_counts_as_closed(self):
+        trades = [
+            _trade(symbol="A", status="expired", spnl=-2.0, exit_type="expired",
+                   exit_date="2026-07-05", holding=60.0),
+        ]
+        stats = compute_stats(trades, 0)
+        assert stats.strategy.closed_count == 1
+        assert stats.exit_counts == {"expired": 1}
+        assert stats.cumulative_curve == [("2026-07-05", -2.0)]
+
+
+class TestBuildWhatIfDataFromStore:
+    def _seed(self, repo):
+        # 1 kapali, 1 acik, 1 pending; ayni sembolde acik+sonraki sinyal (dedup testi)
+        s1 = _log(repo, "THYAO", score=50, price=100.0, created_at="2026-06-01 07:30:00",
+                  indicator_values={"entry_score": 5})
+        s2 = _log(repo, "THYAO", score=50, price=100.0, created_at="2026-06-10 07:30:00",
+                  indicator_values={"entry_score": 5})
+        s3 = _log(repo, "ASELS", score=60, price=50.0, created_at="2026-06-05 07:30:00",
+                  indicator_values={"entry_score": 6})
+        repo.insert_whatif_trade({
+            "signal_id": s1, "symbol": "THYAO", "signal_time": "2026-06-01 07:30:00",
+            "score": 5, "price_at_signal": 100.0, "status": "open",
+        })
+        repo.update_whatif_trade(1, {
+            "entry_price": 100.0, "entry_source": "bar_1h", "stop_loss": 96.0,
+            "tp1": 103.0, "tp2": 106.0, "remaining_shares": 100, "realized_pnl": 0.0,
+            "highest_price": 100.0, "strategy_pnl_pct": 1.0, "buyhold_pnl_pct": 1.0,
+            "last_close": 101.0, "last_update": "2026-06-20",
+        })
+        repo.insert_whatif_trade({
+            "signal_id": s2, "symbol": "THYAO", "signal_time": "2026-06-10 07:30:00",
+            "score": 5, "price_at_signal": 100.0, "status": "open",
+        })
+        repo.update_whatif_trade(2, {
+            "entry_price": 100.0, "entry_source": "bar_1h", "stop_loss": 96.0,
+            "tp1": 103.0, "tp2": 106.0, "remaining_shares": 100, "realized_pnl": 0.0,
+            "highest_price": 100.0, "strategy_pnl_pct": 1.0, "last_update": "2026-06-20",
+        })
+        repo.insert_whatif_trade({
+            "signal_id": s3, "symbol": "ASELS", "signal_time": "2026-06-05 07:30:00",
+            "score": 6, "price_at_signal": 50.0,
+        })
+
+    def test_reads_store_no_simulation(self, repo, monkeypatch):
         from swing_tracker.web.routers import whatif as whatif_router
-
-        _log(
-            repo, "THYAO", score=50, price=100.0, created_at="2026-06-21 07:30:00",
-            indicator_values={"entry_score": 5, "reasons": "test"},
-        )
-
-        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)] * 3)
-        hourly = _df_1h("2026-06-21 06:00:00", [100.0] * 5)
-
-        def fake_get_ohlcv(symbol, *, interval, **kwargs):
-            return hourly if interval == "1h" else daily
-
-        monkeypatch.setattr(whatif_router, "get_ohlcv", fake_get_ohlcv)
+        self._seed(repo)
         monkeypatch.setattr(
-            whatif_router.price_cache, "fetch_many", lambda syms: {"THYAO": 102.0}
+            whatif_router.price_cache, "fetch_many", lambda syms: {"THYAO": 110.0}
         )
 
-        class FakeConfig:
-            cache = None  # get_ohlcv mock'landigi icin kullanilmaz
+        trades, stats = whatif_router.build_whatif_data(repo, mode="takip")
 
-        trades, stats = whatif_router.build_whatif_data(repo, FakeConfig())
+        # dedup: THYAO'nun 2. sinyali atlanir; pending ASELS gorunur
+        assert len(trades) == 2
+        assert stats.skipped_dedup == 1
+        thyao = next(t for t in trades if t.symbol == "THYAO")
+        # canli fiyatla mark-to-market: (0 + (110-100)*100)/10000*100 = 10.0
+        assert thyao.strategy_pnl_pct == pytest.approx(10.0)
+        assert thyao.buyhold_pnl_pct == pytest.approx(10.0)
+        pending = next(t for t in trades if t.symbol == "ASELS")
+        assert pending.status == "pending"
+        assert pending.strategy_pnl_pct is None
 
-        assert len(trades) == 1
-        assert trades[0].symbol == "THYAO"
-        assert trades[0].score == 5
-        assert stats.strategy.trade_count == 1
+    def test_mode_tum_no_dedup(self, repo, monkeypatch):
+        from swing_tracker.web.routers import whatif as whatif_router
+        self._seed(repo)
+        monkeypatch.setattr(whatif_router.price_cache, "fetch_many", lambda syms: {})
+
+        trades, stats = whatif_router.build_whatif_data(repo, mode="tum")
+
+        assert len(trades) == 3
+        assert stats.skipped_dedup == 0
+        # fiyat gelmedi: DB'deki degerler korunur
+        thyao1 = trades[0]
+        assert thyao1.strategy_pnl_pct == pytest.approx(1.0)
 
 
 class TestEntryScore:
     def test_indicator_values_entry_score_wins(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 60, "indicator_values": '{"entry_score": 6, "reasons": "x"}'}
-        assert _entry_score(sig) == 6
+        assert normalize_signal_score(sig) == 6
 
     def test_missing_entry_score_falls_back_to_score_div_10(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 50, "indicator_values": '{"reasons": "x"}'}
-        assert _entry_score(sig) == 5
+        assert normalize_signal_score(sig) == 5
 
     def test_malformed_json_falls_back_to_score_div_10(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 40, "indicator_values": "not json"}
-        assert _entry_score(sig) == 4
+        assert normalize_signal_score(sig) == 4
 
     def test_legacy_row_small_score_unscaled(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": 5, "indicator_values": ""}
-        assert _entry_score(sig) == 5
+        assert normalize_signal_score(sig) == 5
 
     def test_score_none_returns_zero(self):
-        from swing_tracker.web.routers.whatif import _entry_score
-
         sig = {"score": None, "indicator_values": None}
-        assert _entry_score(sig) == 0
+        assert normalize_signal_score(sig) == 0

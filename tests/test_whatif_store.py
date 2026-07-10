@@ -1,0 +1,437 @@
+"""Tests for whatif persistent store: config, schema/CRUD, job steps."""
+
+from __future__ import annotations
+
+import sqlite3
+
+import pandas as pd
+import pytest
+
+from swing_tracker.backtest.models import BacktestConfig
+from swing_tracker.config import CacheConfig, Config, LiquidityConfig, ScannerConfig, WhatIfConfig, load_config
+from swing_tracker.core.scanner import Scanner, ScoredCandidate
+from swing_tracker.core.whatif_store import expire_stale, fill_pending, refresh_buyhold, row_to_bt, update_open
+from swing_tracker.db.repository import Repository
+from swing_tracker.db.schema import create_all_tables
+
+
+class TestWhatIfConfig:
+    def test_defaults(self):
+        cfg = WhatIfConfig()
+        assert cfg.enabled is True
+        assert cfg.max_holding_days == 60
+
+    def test_load_from_toml(self):
+        config = load_config()
+        assert isinstance(config.whatif, WhatIfConfig)
+        assert config.whatif.max_holding_days == 60
+
+
+@pytest.fixture
+def repo():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    create_all_tables(conn)
+    return Repository(conn)
+
+
+def _insert_signal(repo, symbol="THYAO", created_at="2026-07-01 07:30:00",
+                   score=50, price=100.0):
+    sid = repo.log_signal(
+        symbol=symbol, signal_type="buy", indicator="score", strength="medium",
+        price_at_signal=price, score=score,
+        indicator_values={"entry_score": score // 10, "reasons": "test"},
+    )
+    repo._conn.execute(
+        "UPDATE signals_log SET created_at = ? WHERE id = ?", (created_at, sid)
+    )
+    repo._conn.commit()
+    return sid
+
+
+def _pending_fields(signal_id, symbol="THYAO", signal_time="2026-07-01 07:30:00",
+                    score=5, price=100.0):
+    return {
+        "signal_id": signal_id, "symbol": symbol, "signal_time": signal_time,
+        "score": score, "price_at_signal": price,
+    }
+
+
+class TestWhatIfTradeCrud:
+    def test_insert_and_get(self, repo):
+        sid = _insert_signal(repo)
+        rowid = repo.insert_whatif_trade(_pending_fields(sid))
+        assert rowid is not None
+
+        rows = repo.get_whatif_trades()
+        assert len(rows) == 1
+        assert rows[0]["status"] == "pending"
+        assert rows[0]["symbol"] == "THYAO"
+        assert rows[0]["score"] == 5
+
+    def test_insert_or_ignore_idempotent(self, repo):
+        sid = _insert_signal(repo)
+        assert repo.insert_whatif_trade(_pending_fields(sid)) is not None
+        assert repo.insert_whatif_trade(_pending_fields(sid)) is None  # ayni signal_id
+        assert len(repo.get_whatif_trades()) == 1
+
+    def test_status_filter_and_order(self, repo):
+        s1 = _insert_signal(repo, "AAA", "2026-07-02 08:00:00")
+        s2 = _insert_signal(repo, "BBB", "2026-07-01 08:00:00")
+        repo.insert_whatif_trade(_pending_fields(s1, "AAA", "2026-07-02 08:00:00"))
+        rid2 = repo.insert_whatif_trade(_pending_fields(s2, "BBB", "2026-07-01 08:00:00"))
+        repo.update_whatif_trade(rid2, {"status": "open", "entry_price": 101.0})
+
+        assert [r["symbol"] for r in repo.get_whatif_trades()] == ["BBB", "AAA"]
+        opens = repo.get_whatif_trades(status="open")
+        assert len(opens) == 1 and opens[0]["entry_price"] == 101.0
+
+    def test_update_whitelist(self, repo):
+        sid = _insert_signal(repo)
+        rid = repo.insert_whatif_trade(_pending_fields(sid))
+        with pytest.raises(ValueError):
+            repo.update_whatif_trade(rid, {"symbol; DROP TABLE": 1})
+
+
+def _bt_config():
+    return BacktestConfig(
+        commission_pct=0.0, commission_fixed=0.0,
+        sl_atr_mult=2.0, tp1_atr_mult=1.5, tp1_exit_pct=0.50,
+        tp2_atr_mult=3.0, tp2_exit_pct=0.30, trailing_stop_pct=0.20,
+    )
+
+
+def _df_1h(start, closes):
+    idx = pd.date_range(start=start, periods=len(closes), freq="1h")
+    return pd.DataFrame(
+        {"Open": closes, "High": closes, "Low": closes, "Close": closes, "Volume": 1000},
+        index=idx,
+    )
+
+
+def _df_1d(start, rows):
+    idx = pd.date_range(start=start, periods=len(rows), freq="1D")
+    o, h, low, c = zip(*rows)
+    return pd.DataFrame(
+        {"Open": o, "High": h, "Low": low, "Close": c, "Volume": 1000}, index=idx
+    )
+
+
+_WARMUP = [(100.0, 101.0, 99.0, 100.0)] * 20  # ATR(14) = 2.0
+
+
+def _make_pending(repo, symbol="THYAO", signal_time="2026-06-21 07:30:00",
+                  score=5, price=100.0):
+    sid = _insert_signal(repo, symbol, signal_time, score * 10, price)
+    return repo.insert_whatif_trade(_pending_fields(sid, symbol, signal_time, score, price))
+
+
+def _make_open(repo, symbol="THYAO", signal_time="2026-06-21 07:30:00",
+               entry=100.0, sl=96.0, tp1=103.0, tp2=106.0,
+               remaining=100, tp1_hit=0, highest=None, realized=0.0,
+               last_update="2026-06-21"):
+    rid = _make_pending(repo, symbol, signal_time)
+    repo.update_whatif_trade(rid, {
+        "status": "open", "entry_price": entry, "entry_source": "bar_1h",
+        "stop_loss": sl, "tp1": tp1, "tp2": tp2,
+        "remaining_shares": remaining, "tp1_hit": tp1_hit,
+        "highest_price": highest or entry, "realized_pnl": realized,
+        "last_update": last_update,
+    })
+    return rid
+
+
+class TestUpdateOpen:
+    def test_sl_closes(self, repo):
+        _make_open(repo)
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (100.0, 100.0, 90.0, 92.0)])
+        counts = update_open(repo, {"THYAO": daily}, _bt_config())
+
+        assert counts == {"updated": 0, "closed": 1}
+        row = repo.get_whatif_trades(status="closed")[0]
+        assert row["exit_type"] == "sl"
+        assert row["exit_date"] == "2026-06-22"
+        assert row["strategy_pnl_pct"] == pytest.approx(-4.0)  # (96-100)*100/10000
+        assert row["holding_days"] == pytest.approx(1.0)
+
+    def test_tp1_partial_exit_then_open(self, repo):
+        _make_open(repo)
+        # Gun 1 (06-22): high 103.5 -> TP1, 50 pay @103 (+150); kapanis 103.
+        # low 102 > SL 96, SL devrede kalir (check_exits SL'i once kontrol eder).
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (103.0, 103.5, 102.0, 103.0)])
+        counts = update_open(repo, {"THYAO": daily}, _bt_config())
+
+        assert counts == {"updated": 1, "closed": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["remaining_shares"] == 50
+        assert row["tp1_hit"] == 1
+        assert row["last_update"] == "2026-06-22"
+        # mark-to-market: (150 + (103-100)*50) / 10000 * 100 = 3.0
+        assert row["strategy_pnl_pct"] == pytest.approx(3.0)
+
+    def test_tp1_tp2_then_trailing_close(self, repo):
+        _make_open(repo)
+        # Gun 1 (06-22): high 126 -> ayni bar'da TP1 (50 pay@103, +150) ve
+        # TP2 (30 pay@106, +180) tetiklenir; low 102 > SL 96, SL devrede kalir
+        # ama tetiklenmez. highest 126 -> trail 100.8; low 102 > 100.8 -> trailing henuz yok.
+        daily1 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 126.0, 102.0, 120.0)])
+        counts1 = update_open(repo, {"THYAO": daily1}, _bt_config())
+
+        assert counts1 == {"updated": 1, "closed": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["remaining_shares"] == 20
+        assert row["tp1_hit"] == 1
+        assert row["last_update"] == "2026-06-22"
+        # realized 330 (150+180) + unrealized (120-100)*20=400 -> 730/10000*100 = 7.3
+        assert row["strategy_pnl_pct"] == pytest.approx(7.3)
+
+        # Gun 2 (06-23): low 99 > SL 96 (SL tetiklenmez) ama trail 100.8'in altinda
+        # -> kalan 20 pay trailing'den 100.8'de kapanir. (100.8-100)*20 = +16.
+        daily2 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 126.0, 102.0, 120.0),
+                                                  (100.0, 100.0, 99.0, 99.5)])
+        counts2 = update_open(repo, {"THYAO": daily2}, _bt_config())
+
+        assert counts2 == {"updated": 0, "closed": 1}
+        row = repo.get_whatif_trades(status="closed")[0]
+        assert row["exit_type"] == "trailing"
+        assert row["exit_date"] == "2026-06-23"
+        # 150 + 180 + 16 = 346 -> 3.46%
+        assert row["strategy_pnl_pct"] == pytest.approx(3.46)
+
+    def test_tp2_does_not_refire_next_day(self, repo):
+        _make_open(repo)
+        # Gun 1 (06-22): high 126 -> TP1 (+150) ve TP2 (+180) tetiklenir; tp2_hit
+        # kalici olarak True kaydedilmeli (kritik regresyon: aksi halde ertesi
+        # gun high tekrar tp2'yi asarsa TP2 ikinci kez tetiklenir).
+        daily1 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 126.0, 102.0, 120.0)])
+        counts1 = update_open(repo, {"THYAO": daily1}, _bt_config())
+        assert counts1 == {"updated": 1, "closed": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["tp2_hit"] == 1
+        assert row["remaining_shares"] == 20
+
+        # Gun 2 (06-23): high 108 >= tp2 106 (tekrar asilir) ama TP2 zaten
+        # vurulmus -> tekrar tetiklenmemeli. low 105 > trail 100.8 ve > SL 96
+        # -> pozisyon acik kalir, remaining_shares degismez.
+        daily2 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 126.0, 102.0, 120.0),
+                                                  (107.0, 108.0, 105.0, 106.0)])
+        counts2 = update_open(repo, {"THYAO": daily2}, _bt_config())
+
+        assert counts2 == {"updated": 1, "closed": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["remaining_shares"] == 20
+        assert row["tp2_hit"] == 1
+        assert row["last_update"] == "2026-06-23"
+        # realized 330 (150+180) + unrealized (106-100)*20=120 -> 450/10000*100 = 4.5
+        assert row["strategy_pnl_pct"] == pytest.approx(4.5)
+
+    def test_corrupt_row_does_not_kill_job(self, repo):
+        good_id = _make_open(repo, symbol="THYAO")
+        bad_id = _make_open(repo, symbol="ASELS", signal_time="2026-06-21 08:00:00")
+        repo.update_whatif_trade(bad_id, {"remaining_shares": 0})  # row_to_bt patlatir
+
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (103.0, 103.5, 102.0, 103.0)])
+        counts = update_open(
+            repo, {"THYAO": daily, "ASELS": daily}, _bt_config()
+        )  # raise ETMEMELI
+
+        assert counts == {"updated": 1, "closed": 0}
+        good_row = next(r for r in repo.get_whatif_trades() if r["id"] == good_id)
+        assert good_row["last_update"] == "2026-06-22"
+        bad_row = next(r for r in repo.get_whatif_trades() if r["id"] == bad_id)
+        assert bad_row["remaining_shares"] == 0  # bozuk satir dokunulmamis kaldi
+        assert bad_row["last_update"] == "2026-06-21"
+
+    def test_no_new_bars_idempotent(self, repo):
+        _make_open(repo, last_update="2026-06-22")
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (100.0, 100.0, 90.0, 92.0)])
+        counts = update_open(repo, {"THYAO": daily}, _bt_config())
+        assert counts == {"updated": 0, "closed": 0}
+
+    def test_missing_data_skips_row(self, repo):
+        _make_open(repo)
+        counts = update_open(repo, {}, _bt_config())
+        assert counts == {"updated": 0, "closed": 0}
+        assert repo.get_whatif_trades(status="open")[0]["last_update"] == "2026-06-21"
+
+
+class TestRefreshBuyhold:
+    def test_updates_all_rows_with_entry(self, repo):
+        _make_open(repo, "THYAO")
+        rid2 = _make_open(repo, "ASELS", signal_time="2026-06-20 07:30:00")
+        repo.update_whatif_trade(rid2, {"status": "closed", "exit_type": "sl",
+                                        "exit_date": "2026-06-22"})
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 110.0)])
+
+        n = refresh_buyhold(repo, {"THYAO": daily, "ASELS": daily})
+
+        assert n == 2
+        for row in repo.get_whatif_trades():
+            assert row["last_close"] == 110.0
+            assert row["buyhold_pnl_pct"] == pytest.approx(10.0)
+
+
+class TestExpireStale:
+    def test_open_expires_with_pnl(self, repo):
+        rid = _make_open(repo, signal_time="2026-04-01 07:30:00", last_update="2026-04-01")
+        repo.update_whatif_trade(rid, {"last_close": 95.0})
+
+        n = expire_stale(repo, today="2026-07-10", max_holding_days=60)
+
+        assert n == 1
+        row = repo.get_whatif_trades(status="expired")[0]
+        assert row["exit_type"] == "expired"
+        assert row["exit_date"] == "2026-07-10"
+        assert row["strategy_pnl_pct"] == pytest.approx(-5.0)  # (95-100)*100/10000
+        assert row["remaining_shares"] == 0
+
+    def test_pending_expires_without_pnl(self, repo):
+        _make_pending(repo, signal_time="2026-04-01 07:30:00")
+        n = expire_stale(repo, today="2026-07-10", max_holding_days=60)
+        assert n == 1
+        row = repo.get_whatif_trades(status="expired")[0]
+        assert row["strategy_pnl_pct"] is None
+
+    def test_fresh_rows_untouched(self, repo):
+        _make_open(repo, signal_time="2026-07-01 07:30:00")
+        assert expire_stale(repo, today="2026-07-10", max_holding_days=60) == 0
+
+
+class TestFillPending:
+    def test_fills_entry_and_levels(self, repo):
+        rid = _make_pending(repo)  # sinyal 2026-06-21 07:30
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)])
+        hourly = _df_1h("2026-06-21 06:00:00", [102.0] * 5)  # ilk bar >= 07:30 → 08:00, close 102
+
+        counts = fill_pending(repo, {"THYAO": hourly}, {"THYAO": daily}, _bt_config())
+
+        assert counts == {"opened": 1, "no_data": 0, "left_pending": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["id"] == rid
+        assert row["entry_price"] == 102.0
+        assert row["entry_source"] == "bar_1h"
+        assert row["stop_loss"] == pytest.approx(98.0)   # 102 - 2*2
+        assert row["tp1"] == pytest.approx(105.0)
+        assert row["remaining_shares"] == 100
+        assert row["highest_price"] == 102.0
+        assert row["last_update"] == "2026-06-21"
+        assert row["delay_cost_pct"] == pytest.approx(2.0)  # (102-100)/100
+
+    def test_no_hourly_falls_back(self, repo):
+        _make_pending(repo)
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0)])
+
+        counts = fill_pending(repo, {"THYAO": None}, {"THYAO": daily}, _bt_config())
+
+        assert counts["opened"] == 1
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["entry_price"] == 100.0
+        assert row["entry_source"] == "fallback"
+        assert row["delay_cost_pct"] is None
+
+    def test_no_daily_marks_no_data(self, repo):
+        _make_pending(repo)
+        hourly = _df_1h("2026-06-21 06:00:00", [102.0] * 5)
+
+        counts = fill_pending(repo, {"THYAO": hourly}, {"THYAO": None}, _bt_config())
+
+        assert counts == {"opened": 0, "no_data": 1, "left_pending": 0}
+        row = repo.get_whatif_trades(status="no_data")[0]
+        assert row["entry_price"] == 102.0  # al-tut icin giris yine yazilir
+
+    def test_no_price_stays_pending(self, repo):
+        sid = _insert_signal(repo, "THYAO", "2026-06-21 07:30:00", 50, None)
+        repo.insert_whatif_trade({
+            "signal_id": sid, "symbol": "THYAO",
+            "signal_time": "2026-06-21 07:30:00", "score": 5,
+        })
+        counts = fill_pending(repo, {"THYAO": None}, {"THYAO": None}, _bt_config())
+        assert counts == {"opened": 0, "no_data": 0, "left_pending": 1}
+        assert len(repo.get_whatif_trades(status="pending")) == 1
+
+
+class TestRowToBt:
+    def test_reconstructs_state(self):
+        row = {
+            "symbol": "THYAO", "signal_time": "2026-06-21 07:30:00",
+            "entry_price": 102.0, "stop_loss": 98.0, "tp1": 105.0, "tp2": 108.0,
+            "remaining_shares": 50, "highest_price": 106.0, "tp1_hit": 1,
+        }
+        bt = row_to_bt(row)
+        assert bt.remaining_shares == 50
+        assert bt.tp1_hit is True
+        assert bt.highest_price == 106.0
+        assert bt.shares == 100  # VIRTUAL_SHARES — pnl_pct tabani
+        assert bt.status == "open"
+
+    def test_zero_remaining_raises(self):
+        row = {
+            "symbol": "THYAO", "signal_time": "2026-06-21 07:30:00",
+            "entry_price": 102.0, "stop_loss": 98.0, "tp1": 105.0, "tp2": 108.0,
+            "remaining_shares": 0, "highest_price": 106.0, "tp1_hit": 1,
+        }
+        with pytest.raises(ValueError):
+            row_to_bt(row)
+
+
+def _make_scanner(repo):
+    c = Config()
+    c.scanner = ScannerConfig(universe="XTUMY", market_regime_index="XU100")
+    c.cache = CacheConfig(enabled=True)
+    c.liquidity = LiquidityConfig(enabled=False)
+    return Scanner(repo, c, universe_builder=None)
+
+
+def _make_scored(symbol="THYAO", entry_score=5, price=100.0):
+    return ScoredCandidate(
+        symbol=symbol, price=price, entry_score=entry_score,
+        reasons=["RSI=35"], analysis=None,
+    )
+
+
+class TestScannerWhatIfHook:
+    def test_logged_signal_creates_pending_row(self, repo):
+        scanner = _make_scanner(repo)
+
+        assert scanner._log_scored_signal(_make_scored()) is True
+
+        rows = repo.get_whatif_trades(status="pending")
+        assert len(rows) == 1
+        assert rows[0]["symbol"] == "THYAO"
+        assert rows[0]["score"] == 5           # entry_score olcegi
+        assert rows[0]["price_at_signal"] == 100.0
+        assert rows[0]["signal_id"] is not None
+
+    def test_hook_failure_does_not_break_signal_logging(self, repo, monkeypatch):
+        scanner = _make_scanner(repo)
+        monkeypatch.setattr(
+            repo, "insert_whatif_trade",
+            lambda fields: (_ for _ in ()).throw(RuntimeError("db hatasi")),
+        )
+        assert scanner._log_scored_signal(_make_scored()) is True  # sinyal yine loglanir
+
+
+class TestBackfill:
+    def test_inserts_pending_rows_idempotent(self, repo):
+        from swing_tracker.whatif_backfill import backfill_signals
+        _insert_signal(repo, "THYAO", "2026-04-01 07:30:00", score=50, price=100.0)
+        _insert_signal(repo, "ASELS", "2026-04-02 07:30:00", score=60, price=50.0)
+        _insert_signal(repo, "ZAYIF", "2026-04-03 07:30:00", score=30, price=10.0)  # esik alti
+
+        first = backfill_signals(repo)
+        assert first == {"inserted": 2, "skipped_existing": 0}
+        rows = repo.get_whatif_trades(status="pending")
+        assert {r["symbol"] for r in rows} == {"THYAO", "ASELS"}
+        assert rows[0]["score"] == 5  # entry_score olcegi
+
+        second = backfill_signals(repo)
+        assert second == {"inserted": 0, "skipped_existing": 2}
+        assert len(repo.get_whatif_trades()) == 2

@@ -55,6 +55,10 @@ fallback_universe = "XU100"          # tablo bossa bu evrene dus
 market_cache_ttl_days = 7            # KAP market bilgisi 7 gun cache
 builder_max_workers = 5
 
+[whatif]
+enabled = true
+max_holding_days = 60   # acik sanal pozisyon zaman asimi
+
 [backtest]
 symbols = [
     "THYAO", "ASELS", "KCHOL", "SAHOL", "BIMAS",
