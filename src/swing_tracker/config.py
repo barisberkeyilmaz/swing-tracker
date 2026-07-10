@@ -72,6 +72,12 @@ class LiquidityConfig:
 
 
 @dataclass
+class WhatIfConfig:
+    enabled: bool = True
+    max_holding_days: int = 60  # acik sanal pozisyon zaman asimi (gun)
+
+
+@dataclass
 class StrategyConfig:
     name: str = "default"
     min_score: int = 30
@@ -98,6 +104,7 @@ class Config:
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
     liquidity: LiquidityConfig = field(default_factory=LiquidityConfig)
+    whatif: WhatIfConfig = field(default_factory=WhatIfConfig)
     strategies: dict[str, StrategyConfig] = field(default_factory=dict)
 
     def get_strategy(self, name: str = "default") -> StrategyConfig:
@@ -187,6 +194,13 @@ def load_config(config_path: Path | None = None) -> Config:
         fallback_universe=li.get("fallback_universe", "XU100"),
         market_cache_ttl_days=li.get("market_cache_ttl_days", 7),
         builder_max_workers=li.get("builder_max_workers", 5),
+    )
+
+    # What-if
+    wi = raw.get("whatif", {})
+    config.whatif = WhatIfConfig(
+        enabled=wi.get("enabled", True),
+        max_holding_days=wi.get("max_holding_days", 60),
     )
 
     # Strategies
