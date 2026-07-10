@@ -88,6 +88,8 @@ def build_whatif_data(repo, mode: str = "takip") -> tuple[list[WhatIfTrade], Wha
 @router.get("", response_class=HTMLResponse)
 async def whatif_page(request: Request, mode: str = Query("takip")):
     """Skeleton sayfa — fragment htmx ile yuklenir."""
+    if mode not in ("takip", "tum"):
+        mode = "takip"
     return templates.TemplateResponse(request, "whatif.html", context={"mode": mode})
 
 

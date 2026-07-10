@@ -267,7 +267,7 @@ class Repository:
     _WHATIF_COLUMNS = {
         "signal_id", "symbol", "signal_time", "score", "price_at_signal",
         "entry_price", "entry_source", "stop_loss", "tp1", "tp2", "status",
-        "remaining_shares", "realized_pnl", "highest_price", "tp1_hit",
+        "remaining_shares", "realized_pnl", "highest_price", "tp1_hit", "tp2_hit",
         "exit_type", "exit_date", "strategy_pnl_pct", "buyhold_pnl_pct",
         "last_close", "delay_cost_pct", "holding_days", "last_update",
     }

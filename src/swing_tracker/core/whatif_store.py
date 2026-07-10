@@ -14,7 +14,7 @@ from datetime import datetime
 import pandas as pd
 
 from swing_tracker.backtest.exits import check_exits
-from swing_tracker.backtest.models import BacktestConfig, BacktestTrade
+from swing_tracker.backtest.models import BacktestConfig, BacktestTrade, TradeExit
 from swing_tracker.core.whatif import VIRTUAL_SHARES, atr_from_daily, find_entry
 from swing_tracker.db.repository import Repository
 
@@ -33,7 +33,7 @@ def row_to_bt(row: dict) -> BacktestTrade:
         raise ValueError(
             f"row_to_bt: {row['symbol']} acik satirda remaining_shares={remaining}"
         )
-    return BacktestTrade(
+    bt = BacktestTrade(
         symbol=row["symbol"],
         direction="long",
         entry_price=row["entry_price"],
@@ -47,6 +47,14 @@ def row_to_bt(row: dict) -> BacktestTrade:
         tp1_hit=bool(row["tp1_hit"]),
         remaining_shares=remaining,
     )
+    if row.get("tp2_hit"):
+        # check_exits TP2 tekrarini trade.exits icinden anlar; durumdan sentetik
+        # bir tp2 kaydi ekle (pnl'e girmez — update_open yalnizca DONEN exit'leri toplar).
+        bt.exits.append(TradeExit(
+            date=row.get("last_update") or "", price=0.0, shares=0,
+            exit_type="tp2", pnl=0.0, pnl_pct=0.0,
+        ))
+    return bt
 
 
 def fill_pending(
@@ -61,47 +69,54 @@ def fill_pending(
     """
     counts = {"opened": 0, "no_data": 0, "left_pending": 0}
     for row in repo.get_whatif_trades(status="pending"):
-        symbol = row["symbol"]
-        entry = find_entry(ohlcv_1h.get(symbol), row["signal_time"], row["price_at_signal"])
-        if entry is None:
-            counts["left_pending"] += 1
-            continue
-        entry_price, source = entry
+        try:
+            symbol = row["symbol"]
+            entry = find_entry(ohlcv_1h.get(symbol), row["signal_time"], row["price_at_signal"])
+            if entry is None:
+                counts["left_pending"] += 1
+                continue
+            entry_price, source = entry
 
-        delay_cost = None
-        if source == "bar_1h" and row["price_at_signal"]:
-            delay_cost = round(
-                (entry_price - row["price_at_signal"]) / row["price_at_signal"] * 100, 2
-            )
+            delay_cost = None
+            if source == "bar_1h" and row["price_at_signal"]:
+                delay_cost = round(
+                    (entry_price - row["price_at_signal"]) / row["price_at_signal"] * 100, 2
+                )
 
-        df_1d = ohlcv_1d.get(symbol)
-        atr = atr_from_daily(df_1d, row["signal_time"]) if df_1d is not None else None
-        if atr is None:
+            df_1d = ohlcv_1d.get(symbol)
+            atr = atr_from_daily(df_1d, row["signal_time"]) if df_1d is not None else None
+            if atr is None:
+                repo.update_whatif_trade(row["id"], {
+                    "status": "no_data",
+                    "entry_price": entry_price,
+                    "entry_source": source,
+                    "delay_cost_pct": delay_cost,
+                })
+                counts["no_data"] += 1
+                continue
+
+            signal_day = pd.Timestamp(row["signal_time"]).date().isoformat()
             repo.update_whatif_trade(row["id"], {
-                "status": "no_data",
+                "status": "open",
                 "entry_price": entry_price,
                 "entry_source": source,
                 "delay_cost_pct": delay_cost,
+                "stop_loss": round(entry_price - atr * bt_config.sl_atr_mult, 2),
+                "tp1": round(entry_price + atr * bt_config.tp1_atr_mult, 2),
+                "tp2": round(entry_price + atr * bt_config.tp2_atr_mult, 2),
+                "remaining_shares": VIRTUAL_SHARES,
+                "realized_pnl": 0.0,
+                "highest_price": entry_price,
+                "tp1_hit": 0,
+                "tp2_hit": 0,
+                "last_update": signal_day,  # exit kontrolu ertesi gunden (lookahead onlemi)
             })
-            counts["no_data"] += 1
+            counts["opened"] += 1
+        except Exception:
+            logger.exception(
+                "whatif_store: satir islenemedi id=%s symbol=%s", row["id"], row["symbol"]
+            )
             continue
-
-        signal_day = pd.Timestamp(row["signal_time"]).date().isoformat()
-        repo.update_whatif_trade(row["id"], {
-            "status": "open",
-            "entry_price": entry_price,
-            "entry_source": source,
-            "delay_cost_pct": delay_cost,
-            "stop_loss": round(entry_price - atr * bt_config.sl_atr_mult, 2),
-            "tp1": round(entry_price + atr * bt_config.tp1_atr_mult, 2),
-            "tp2": round(entry_price + atr * bt_config.tp2_atr_mult, 2),
-            "remaining_shares": VIRTUAL_SHARES,
-            "realized_pnl": 0.0,
-            "highest_price": entry_price,
-            "tp1_hit": 0,
-            "last_update": signal_day,  # exit kontrolu ertesi gunden (lookahead onlemi)
-        })
-        counts["opened"] += 1
     return counts
 
 
@@ -109,61 +124,74 @@ def update_open(repo: Repository, ohlcv_1d: OhlcvMap, bt_config: BacktestConfig)
     """Acik satirlari last_update'ten sonraki gunluk bar'larla ilerlet."""
     counts = {"updated": 0, "closed": 0}
     for row in repo.get_whatif_trades(status="open"):
-        df = ohlcv_1d.get(row["symbol"])
-        if df is None or df.empty:
-            continue
-        after = pd.Timestamp(row["last_update"])
-        bars = df[df.index.normalize() > after]
-        if bars.empty:
-            continue
+        try:
+            df = ohlcv_1d.get(row["symbol"])
+            if df is None or df.empty:
+                continue
+            after = pd.Timestamp(
+                row["last_update"] or pd.Timestamp(row["signal_time"]).date().isoformat()
+            )
+            bars = df[df.index.normalize() > after]
+            if bars.empty:
+                continue
 
-        bt = row_to_bt(row)
+            bt = row_to_bt(row)
 
-        # check_exits'in donen listesini biriktir; bt.exits/total_pnl OKUMA
-        # (SL yolu trade.exits'e yazmaz, TP yollari yazar — cift sayim tuzagi).
-        new_exits: list = []
-        last_day = row["last_update"]
-        for ts, bar in bars.iterrows():
-            new_exits.extend(check_exits(
-                bt, ts.date().isoformat(),
-                float(bar["High"]), float(bar["Low"]), float(bar["Close"]),
-                bt_config,
-            ))
-            last_day = ts.date().isoformat()
+            # check_exits'in donen listesini biriktir; bt.exits/total_pnl OKUMA
+            # (SL yolu trade.exits'e yazmaz, TP yollari yazar — cift sayim tuzagi).
+            new_exits: list = []
+            last_day = row["last_update"]
+            for ts, bar in bars.iterrows():
+                new_exits.extend(check_exits(
+                    bt, ts.date().isoformat(),
+                    float(bar["High"]), float(bar["Low"]), float(bar["Close"]),
+                    bt_config,
+                ))
+                last_day = ts.date().isoformat()
+                if bt.status == "closed":
+                    break
+
+            realized = row["realized_pnl"] + sum(e.pnl for e in new_exits)
+            cost = row["entry_price"] * VIRTUAL_SHARES
+            signal_day = pd.Timestamp(row["signal_time"]).normalize()
+            tp2_hit = int(
+                bool(row.get("tp2_hit")) or any(e.exit_type == "tp2" for e in new_exits)
+            )
+
             if bt.status == "closed":
-                break
-
-        realized = row["realized_pnl"] + sum(e.pnl for e in new_exits)
-        cost = row["entry_price"] * VIRTUAL_SHARES
-        signal_day = pd.Timestamp(row["signal_time"]).normalize()
-
-        if bt.status == "closed":
-            last_exit = new_exits[-1]
-            repo.update_whatif_trade(row["id"], {
-                "status": "closed",
-                "remaining_shares": 0,
-                "realized_pnl": round(realized, 2),
-                "highest_price": bt.highest_price,
-                "tp1_hit": int(bt.tp1_hit),
-                "exit_type": last_exit.exit_type,
-                "exit_date": last_exit.date,
-                "strategy_pnl_pct": round(realized / cost * 100, 2),
-                "holding_days": float((pd.Timestamp(last_exit.date) - signal_day).days),
-                "last_update": last_day,
-            })
-            counts["closed"] += 1
-        else:
-            last_close = float(bars.iloc[-1]["Close"])
-            unrealized = (last_close - row["entry_price"]) * bt.remaining_shares
-            repo.update_whatif_trade(row["id"], {
-                "remaining_shares": bt.remaining_shares,
-                "realized_pnl": round(realized, 2),
-                "highest_price": bt.highest_price,
-                "tp1_hit": int(bt.tp1_hit),
-                "strategy_pnl_pct": round((realized + unrealized) / cost * 100, 2),
-                "last_update": last_day,
-            })
-            counts["updated"] += 1
+                last_exit = new_exits[-1]
+                repo.update_whatif_trade(row["id"], {
+                    "status": "closed",
+                    "remaining_shares": 0,
+                    "realized_pnl": round(realized, 2),
+                    "highest_price": bt.highest_price,
+                    "tp1_hit": int(bt.tp1_hit),
+                    "tp2_hit": tp2_hit,
+                    "exit_type": last_exit.exit_type,
+                    "exit_date": last_exit.date,
+                    "strategy_pnl_pct": round(realized / cost * 100, 2),
+                    "holding_days": float((pd.Timestamp(last_exit.date) - signal_day).days),
+                    "last_update": last_day,
+                })
+                counts["closed"] += 1
+            else:
+                last_close = float(bars.iloc[-1]["Close"])
+                unrealized = (last_close - row["entry_price"]) * bt.remaining_shares
+                repo.update_whatif_trade(row["id"], {
+                    "remaining_shares": bt.remaining_shares,
+                    "realized_pnl": round(realized, 2),
+                    "highest_price": bt.highest_price,
+                    "tp1_hit": int(bt.tp1_hit),
+                    "tp2_hit": tp2_hit,
+                    "strategy_pnl_pct": round((realized + unrealized) / cost * 100, 2),
+                    "last_update": last_day,
+                })
+                counts["updated"] += 1
+        except Exception:
+            logger.exception(
+                "whatif_store: satir islenemedi id=%s symbol=%s", row["id"], row["symbol"]
+            )
+            continue
     return counts
 
 

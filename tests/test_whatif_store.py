@@ -202,6 +202,53 @@ class TestUpdateOpen:
         # 150 + 180 + 16 = 346 -> 3.46%
         assert row["strategy_pnl_pct"] == pytest.approx(3.46)
 
+    def test_tp2_does_not_refire_next_day(self, repo):
+        _make_open(repo)
+        # Gun 1 (06-22): high 126 -> TP1 (+150) ve TP2 (+180) tetiklenir; tp2_hit
+        # kalici olarak True kaydedilmeli (kritik regresyon: aksi halde ertesi
+        # gun high tekrar tp2'yi asarsa TP2 ikinci kez tetiklenir).
+        daily1 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 126.0, 102.0, 120.0)])
+        counts1 = update_open(repo, {"THYAO": daily1}, _bt_config())
+        assert counts1 == {"updated": 1, "closed": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["tp2_hit"] == 1
+        assert row["remaining_shares"] == 20
+
+        # Gun 2 (06-23): high 108 >= tp2 106 (tekrar asilir) ama TP2 zaten
+        # vurulmus -> tekrar tetiklenmemeli. low 105 > trail 100.8 ve > SL 96
+        # -> pozisyon acik kalir, remaining_shares degismez.
+        daily2 = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                  (103.0, 126.0, 102.0, 120.0),
+                                                  (107.0, 108.0, 105.0, 106.0)])
+        counts2 = update_open(repo, {"THYAO": daily2}, _bt_config())
+
+        assert counts2 == {"updated": 1, "closed": 0}
+        row = repo.get_whatif_trades(status="open")[0]
+        assert row["remaining_shares"] == 20
+        assert row["tp2_hit"] == 1
+        assert row["last_update"] == "2026-06-23"
+        # realized 330 (150+180) + unrealized (106-100)*20=120 -> 450/10000*100 = 4.5
+        assert row["strategy_pnl_pct"] == pytest.approx(4.5)
+
+    def test_corrupt_row_does_not_kill_job(self, repo):
+        good_id = _make_open(repo, symbol="THYAO")
+        bad_id = _make_open(repo, symbol="ASELS", signal_time="2026-06-21 08:00:00")
+        repo.update_whatif_trade(bad_id, {"remaining_shares": 0})  # row_to_bt patlatir
+
+        daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),
+                                                 (103.0, 103.5, 102.0, 103.0)])
+        counts = update_open(
+            repo, {"THYAO": daily, "ASELS": daily}, _bt_config()
+        )  # raise ETMEMELI
+
+        assert counts == {"updated": 1, "closed": 0}
+        good_row = next(r for r in repo.get_whatif_trades() if r["id"] == good_id)
+        assert good_row["last_update"] == "2026-06-22"
+        bad_row = next(r for r in repo.get_whatif_trades() if r["id"] == bad_id)
+        assert bad_row["remaining_shares"] == 0  # bozuk satir dokunulmamis kaldi
+        assert bad_row["last_update"] == "2026-06-21"
+
     def test_no_new_bars_idempotent(self, repo):
         _make_open(repo, last_update="2026-06-22")
         daily = _df_1d("2026-06-01", _WARMUP + [(100.0, 102.0, 99.5, 101.0),

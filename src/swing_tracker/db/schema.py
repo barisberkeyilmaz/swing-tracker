@@ -151,6 +151,7 @@ TABLES = [
         realized_pnl REAL DEFAULT 0,
         highest_price REAL,
         tp1_hit INTEGER DEFAULT 0,
+        tp2_hit INTEGER DEFAULT 0,
         exit_type TEXT,
         exit_date TEXT,
         strategy_pnl_pct REAL,
