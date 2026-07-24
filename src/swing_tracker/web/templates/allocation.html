@@ -72,7 +72,7 @@
           <td class="font-mono tabular-nums">{{ "%.1f"|format(leg.weight_pct) }}%</td>
           <td>
             {% set d = leg.drift_pct %}
-            {% set cls = 'bg-danger/15 text-danger' if d|abs >= config.drift_threshold_pct else ('bg-warning/15 text-warning' if d|abs >= 3 else 'text-txt-muted') %}
+            {% set cls = 'bg-negative/15 text-negative' if d|abs >= config.drift_threshold_pct else ('bg-warning/15 text-warning' if d|abs >= 3 else 'text-txt-muted') %}
             <span class="px-2 py-0.5 rounded font-mono tabular-nums text-xs {{ cls }}">
               {{ "%+.1f"|format(d) }}</span>
           </td>
@@ -99,11 +99,11 @@
   <div class="grid sm:grid-cols-2 gap-4">
     <div class="bg-surface-raised rounded-lg p-4">
       <div class="text-sm font-medium text-txt-primary mb-2">DCA onerisi
-        <span class="text-xs text-success">sadece alim</span></div>
+        <span class="text-xs text-positive">sadece alim</span></div>
       <table class="w-full text-sm">
         {% for it in view.dca.items %}
         <tr class="text-right"><td class="text-left py-1 text-txt-secondary">{{ it.symbol }}</td>
-          <td class="text-success font-mono">+${{ "%.0f"|format(it.buy_usd) }}</td>
+          <td class="text-positive font-mono">+${{ "%.0f"|format(it.buy_usd) }}</td>
           <td class="text-txt-muted font-mono text-xs">{{ "%.2f"|format(it.buy_shares) }} lot</td></tr>
         {% else %}
         <tr><td class="text-txt-muted py-1">Katki gir.</td></tr>
@@ -116,7 +116,7 @@
       <table class="w-full text-sm">
         {% for it in view.rebalance.items %}{% if it.action != 'HOLD' %}
         <tr class="text-right"><td class="text-left py-1 text-txt-secondary">{{ it.symbol }}</td>
-          <td class="font-mono {{ 'text-success' if it.action == 'BUY' else 'text-danger' }}">
+          <td class="font-mono {{ 'text-positive' if it.action == 'BUY' else 'text-negative' }}">
             {{ 'AL' if it.action == 'BUY' else 'SAT' }} ${{ "%.0f"|format(it.amount_usd) }}</td></tr>
         {% endif %}{% endfor %}
       </table>
