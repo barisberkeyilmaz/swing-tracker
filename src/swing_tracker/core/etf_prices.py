@@ -80,7 +80,9 @@ class EtfPriceCache:
         if self._usdtry and (time.monotonic() - self._usdtry[1]) < USDTRY_TTL:
             return self._usdtry[0]
         try:
-            rate = float(bp.FX("USD").price)
+            fx = bp.FX("USD")
+            info = getattr(fx, "info", None) or {}
+            rate = float(info.get("last") or 0)
             if rate <= 0:
                 return None
             self._usdtry = (rate, time.monotonic())

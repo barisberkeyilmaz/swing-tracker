@@ -42,3 +42,25 @@ def test_cache_hit_within_ttl(monkeypatch):
     cache.fetch_many({"XLE": "AMEX"})
     cache.fetch_many({"XLE": "AMEX"})
     assert n["count"] == 1  # ikinci cagri cache'ten
+
+
+def test_fetch_usdtry_parses_info_last(monkeypatch):
+    class FakeFX:
+        def __init__(self, symbol):
+            self.info = {"last": 47.29, "symbol": symbol}
+
+    monkeypatch.setattr(etf_prices.bp, "FX", FakeFX)
+    cache = etf_prices.EtfPriceCache()
+    rate = cache.fetch_usdtry()
+    assert rate == 47.29
+
+
+def test_fetch_usdtry_returns_none_on_error(monkeypatch):
+    class FakeFX:
+        def __init__(self, symbol):
+            raise RuntimeError("borsapy error")
+
+    monkeypatch.setattr(etf_prices.bp, "FX", FakeFX)
+    cache = etf_prices.EtfPriceCache()
+    rate = cache.fetch_usdtry()
+    assert rate is None
