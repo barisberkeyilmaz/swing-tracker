@@ -134,6 +134,15 @@ def job_whatif_update(repo, config):
         logger.exception("whatif_update job hatasi")
 
 
+def job_allocation_check(repo, config, notifier):
+    """Gunluk allocation drift/vade kontrolu -> gerekiyorsa Telegram."""
+    from swing_tracker.core.allocation_service import run_allocation_check
+    try:
+        run_allocation_check(repo, config.allocation, notifier)
+    except Exception:
+        logger.exception("allocation_check job hatasi")
+
+
 # ── Main ──
 
 
@@ -255,6 +264,16 @@ def main():
             args=[repo, config],
             id="whatif_update",
             name="What-If Update",
+        )
+
+    # Allocation kontrolu: gunluk 17:00 (drift/vade -> Telegram)
+    if config.allocation.enabled:
+        _scheduler.add_job(
+            job_allocation_check,
+            CronTrigger(hour=17, minute=0, timezone=tz),
+            args=[repo, config, _notifier],
+            id="allocation_check",
+            name="Allocation Check",
         )
 
     # Daily snapshot: Mon-Fri at 18:45
