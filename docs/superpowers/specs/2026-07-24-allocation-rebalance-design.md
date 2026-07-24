@@ -1,4 +1,4 @@
-# Tahsis & Rebalance Modülü — Tasarım Dokümanı
+# Allocation & Rebalance Modülü — Tasarım Dokümanı
 
 **Tarih:** 2026-07-24
 **Durum:** Onay bekliyor
@@ -7,7 +7,7 @@
 ## Amaç
 
 Swing-tracker'a, USD bazlı uzun-vadeli core/satellite ETF portföyünü izleyen ayrı bir
-tahsis (allocation) ve rebalance modülü eklemek. Modül hedef ağırlıklara göre gerçek
+allocation (varlık dağılımı) ve rebalance modülü eklemek. Modül hedef ağırlıklara göre gerçek
 ağırlıkları hesaplar, sapmayı (drift) gösterir, aylık katkı için alım önerisi (DCA) ve
 gerektiğinde satış dahil tam-rebalance önerisi üretir. **Sadece uyarı/öneri üretir —
 otomatik emir göndermez.**
@@ -134,6 +134,14 @@ CREATE TABLE IF NOT EXISTS allocation_reviews (
     reviewed_at TEXT DEFAULT (datetime('now')),
     note TEXT
 );
+
+CREATE TABLE IF NOT EXISTS allocation_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+-- key='last_contribution_usd' → değişken aylık katkının son girilen değeri;
+-- ekran açılışında config varsayılanı yerine bu gelir.
 ```
 
 Nakit tabloda tutulmaz → ağırlık hesabının tamamen dışında.
@@ -145,6 +153,8 @@ Nakit tabloda tutulmaz → ağırlık hesabının tamamen dışında.
 - `delete_allocation_holding(symbol)`
 - `log_allocation_review(note=None)`
 - `get_last_allocation_review() -> dict | None`
+- `get_allocation_setting(key, default=None)` / `set_allocation_setting(key, value)` —
+  değişken aylık katkı hafızası (`last_contribution_usd`) için `ON CONFLICT(key)` upsert.
 
 Tüm method'lar `dict` döndürür (Row → dict), raw SQL.
 
@@ -193,14 +203,17 @@ Hepsi I/O'suz, network'süz, tam test edilebilir.
 
 ### 6. `web/routers/allocation.py` + `templates/allocation.html`
 
-Route prefix `/tahsis` (mevcut router deseni: `dependencies.templates/get_repo/get_config`).
+Route prefix `/allocation` (mevcut router deseni: `dependencies.templates/get_repo/get_config`).
+Nav/başlık etiketi: "Allocation".
 
-- `GET /tahsis`: holdingleri çek → ETF fiyatları + USDTRY → `compute_weights` →
-  `check_rebalance` → config katkısıyla `plan_dca` + `plan_rebalance` + ETA. Şablona verir.
-- `POST /tahsis/holding`: holding upsert (symbol/shares/cost/notes) → redirect.
-- `POST /tahsis/holding/delete`: sil.
-- `POST /tahsis/dca`: kullanıcının girdiği aylık tutarla DCA + rebalance + ETA yeniden hesapla.
-- `POST /tahsis/review`: `log_allocation_review` → çeyreklik hatırlatmayı sıfırla.
+- `GET /allocation`: holdingleri çek → ETF fiyatları + USDTRY → `compute_weights` →
+  `check_rebalance` → aylık katkıyla `plan_dca` + `plan_rebalance` + ETA. Katkı değeri:
+  `get_allocation_setting('last_contribution_usd')` varsa o, yoksa config varsayılanı.
+- `POST /allocation/holding`: holding upsert (symbol/shares/cost/notes) → redirect.
+- `POST /allocation/holding/delete`: sil.
+- `POST /allocation/dca`: kullanıcının girdiği aylık tutarla DCA + rebalance + ETA yeniden
+  hesapla; tutarı `set_allocation_setting('last_contribution_usd', ...)` ile hatırla.
+- `POST /allocation/review`: `log_allocation_review` → çeyreklik hatırlatmayı sıfırla.
 
 Şablon (`base.html` + mevcut tasarım sistemi, nötr koyu tema):
 - Hedef vs Gerçek vs Drift tablosu; drift `>= threshold` kırmızı rozet, yakın sarı.
@@ -209,9 +222,11 @@ Route prefix `/tahsis` (mevcut router deseni: `dependencies.templates/get_repo/g
 - Tam-rebalance kartı: SAT/AL/TUT aksiyon tablosu.
 - ETA satırı: "≈ N ay (yaklaşık AY YIL)" + varsayım notu.
 - Çeyreklik hatırlatma banner'ı + "Kontrol yapıldı" butonu.
+- Aylık katkı input'u: son girilen değer (DB) ön-dolu gelir; değişince DCA + rebalance +
+  ETA yeniden hesaplanır ve değer hatırlanır.
 - Manuel holding giriş/güncelleme formu; fiyat çekilemeyen bacak "—" + uyarı.
-- Sembol linkleri / navigasyon tüm sayfalarla tutarlı; nav'a `/tahsis` eklenir
-  (mobil fixed bottom tab bar + desktop).
+- Sembol linkleri / navigasyon tüm sayfalarla tutarlı; nav'a `/allocation` ("Allocation")
+  eklenir (mobil fixed bottom tab bar + desktop).
 
 ### 7. `bot/telegram.py` — bildirim (sadece)
 
