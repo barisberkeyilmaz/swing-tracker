@@ -32,12 +32,19 @@ def test_job_allocation_check_runs_without_error(monkeypatch):
     from swing_tracker.core import allocation_service
 
     class FakeCache:
+        def __init__(self):
+            self.calls = 0
+
         def fetch_many(self, se, max_workers=5):
+            self.calls += 1
             return {s: 100.0 for s in se}
 
         def fetch_usdtry(self):
             return 47.0
 
-    monkeypatch.setattr(allocation_service.etf_prices, "etf_price_cache", FakeCache())
+    fake_cache = FakeCache()
+    monkeypatch.setattr(allocation_service.etf_prices, "etf_price_cache", fake_cache)
     # exception yutulmali, patlamamali
     job_allocation_check(repo, config, FakeNotifier())
+    # fake'in gercekten kullanildigini dogrula — network cagrisi olmasin
+    assert fake_cache.calls > 0, "FakeCache was not used; job made real network call"

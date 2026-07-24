@@ -51,8 +51,9 @@ def build_report(
     config: AllocationConfig,
     now: datetime | None = None,
     contribution_override: float | None = None,
-    price_cache=etf_prices.etf_price_cache,
+    price_cache=None,
 ) -> AllocationView:
+    price_cache = price_cache or etf_prices.etf_price_cache
     now = now or datetime.now()
     holdings = repo.get_allocation_holdings()
     symbol_exchange = {t.symbol: t.exchange for t in config.targets.values()}
@@ -89,9 +90,10 @@ def run_allocation_check(
     config: AllocationConfig,
     notifier,
     now: datetime | None = None,
-    price_cache=etf_prices.etf_price_cache,
+    price_cache=None,
 ) -> None:
     """Scheduler girisi: drift/vade kontrolu, gerekiyorsa Telegram bildirimi."""
+    price_cache = price_cache or etf_prices.etf_price_cache
     if not config.enabled:
         return
     view = build_report(repo, config, now=now, price_cache=price_cache)
