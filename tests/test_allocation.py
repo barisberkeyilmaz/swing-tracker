@@ -1,5 +1,16 @@
+from datetime import datetime, timedelta
+
 from swing_tracker.config import AllocationTarget
-from swing_tracker.core.allocation import compute_weights, plan_rebalance
+from swing_tracker.config import AllocationTarget as _AT
+from swing_tracker.core.allocation import (
+    AllocationLeg as _AL,
+    AllocationReport as _AR,
+    check_rebalance,
+    compute_weights,
+    compute_weights as _cw,
+    plan_dca,
+    plan_rebalance,
+)
 
 
 def _targets():
@@ -20,7 +31,7 @@ def test_compute_weights_basic():
     prices = {"VOO": 300.0, "QTUM": 100.0, "VXUS": 80.0, "FIW": 100.0, "XLE": 60.0}
     rep = compute_weights(holdings, prices, _targets())
     assert rep.total_value_usd == 400.0
-    voo = next(l for l in rep.legs if l.symbol == "VOO")
+    voo = next(leg for leg in rep.legs if leg.symbol == "VOO")
     assert voo.value_usd == 300.0
     assert round(voo.weight_pct, 1) == 75.0
     assert round(voo.drift_pct, 1) == 47.0  # 75 - 28
@@ -32,7 +43,7 @@ def test_compute_weights_marks_stale_price():
     holdings = [{"symbol": "VOO", "shares": 2.0}, {"symbol": "QTUM", "shares": 1.0}]
     prices = {"QTUM": 100.0}  # VOO fiyati yok
     rep = compute_weights(holdings, prices, _targets())
-    voo = next(l for l in rep.legs if l.symbol == "VOO")
+    voo = next(leg for leg in rep.legs if leg.symbol == "VOO")
     assert voo.price_stale is True
     assert voo.value_usd == 0.0
     assert rep.total_value_usd == 100.0  # sadece QTUM
@@ -51,14 +62,8 @@ def test_compute_weights_zero_price_is_stale():
 def test_compute_weights_empty_holdings():
     rep = compute_weights([], {}, _targets())
     assert rep.total_value_usd == 0.0
-    assert all(l.weight_pct == 0.0 for l in rep.legs)
+    assert all(leg.weight_pct == 0.0 for leg in rep.legs)
     assert rep.core_weight_pct == 0.0
-
-
-from datetime import datetime, timedelta
-
-from swing_tracker.config import AllocationTarget as _AT
-from swing_tracker.core.allocation import check_rebalance, compute_weights as _cw
 
 
 def _report_with_drift():
@@ -76,7 +81,7 @@ def test_check_rebalance_flags_drifted_legs():
     now = datetime(2026, 7, 24)
     alert = check_rebalance(rep, threshold_pct=5.0, last_review=None,
                             interval_days=91, now=now)
-    assert {l.symbol for l in alert.drifted_legs} == {"VOO", "QTUM"}
+    assert {leg.symbol for leg in alert.drifted_legs} == {"VOO", "QTUM"}
 
 
 def test_review_due_when_never_reviewed():
@@ -101,16 +106,13 @@ def test_review_due_after_interval():
     assert alert.review_due is True
 
 
-from swing_tracker.core.allocation import plan_dca, AllocationReport as _AR, AllocationLeg as _AL
-
-
 def _leg(sym, group, target, value, price):
     return _AL(sym, "AMEX", group, target, value / price if price else 0,
                price, value, 0.0, 0.0, False)
 
 
 def _report(legs):
-    total = sum(l.value_usd for l in legs)
+    total = sum(leg.value_usd for leg in legs)
     return _AR(legs=legs, total_value_usd=total, core_weight_pct=0.0,
                satellite_weight_pct=0.0, usdtry=None)
 
