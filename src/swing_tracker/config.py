@@ -78,6 +78,26 @@ class WhatIfConfig:
 
 
 @dataclass
+class AllocationTarget:
+    symbol: str
+    weight: float
+    exchange: str
+    group: str  # "core" | "satellite"
+    note: str = ""
+
+
+@dataclass
+class AllocationConfig:
+    enabled: bool = True
+    base_currency: str = "USD"
+    monthly_contribution_usd: float = 500.0
+    drift_threshold_pct: float = 5.0
+    review_interval_days: int = 91
+    fractional: bool = True
+    targets: dict[str, AllocationTarget] = field(default_factory=dict)
+
+
+@dataclass
 class StrategyConfig:
     name: str = "default"
     min_score: int = 30
@@ -105,6 +125,7 @@ class Config:
     cache: CacheConfig = field(default_factory=CacheConfig)
     liquidity: LiquidityConfig = field(default_factory=LiquidityConfig)
     whatif: WhatIfConfig = field(default_factory=WhatIfConfig)
+    allocation: AllocationConfig = field(default_factory=AllocationConfig)
     strategies: dict[str, StrategyConfig] = field(default_factory=dict)
 
     def get_strategy(self, name: str = "default") -> StrategyConfig:
@@ -201,6 +222,34 @@ def load_config(config_path: Path | None = None) -> Config:
     config.whatif = WhatIfConfig(
         enabled=wi.get("enabled", True),
         max_holding_days=wi.get("max_holding_days", 60),
+    )
+
+    # Allocation
+    al = raw.get("allocation", {})
+    targets: dict[str, AllocationTarget] = {}
+    for sym, tv in al.get("targets", {}).items():
+        symu = sym.upper()
+        targets[symu] = AllocationTarget(
+            symbol=symu,
+            weight=float(tv.get("weight", 0)),
+            exchange=tv.get("exchange", ""),
+            group=tv.get("group", ""),
+            note=tv.get("note", ""),
+        )
+    total_w = sum(t.weight for t in targets.values())
+    if targets and abs(total_w - 100.0) > 0.01:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Allocation hedef agirliklari toplami %.1f (100 degil)", total_w
+        )
+    config.allocation = AllocationConfig(
+        enabled=al.get("enabled", True),
+        base_currency=al.get("base_currency", "USD"),
+        monthly_contribution_usd=float(al.get("monthly_contribution_usd", 500)),
+        drift_threshold_pct=float(al.get("drift_threshold_pct", 5.0)),
+        review_interval_days=int(al.get("review_interval_days", 91)),
+        fractional=al.get("fractional", True),
+        targets=targets,
     )
 
     # Strategies
