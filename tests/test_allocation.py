@@ -89,3 +89,49 @@ def test_review_due_after_interval():
     last = datetime(2026, 1, 1)
     alert = check_rebalance(rep, 5.0, last, 91, datetime(2026, 7, 24))
     assert alert.review_due is True
+
+
+from swing_tracker.core.allocation import plan_dca, AllocationReport as _AR, AllocationLeg as _AL
+
+
+def _leg(sym, group, target, value, price):
+    return _AL(sym, "AMEX", group, target, value / price if price else 0,
+               price, value, 0.0, 0.0, False)
+
+
+def _report(legs):
+    total = sum(l.value_usd for l in legs)
+    return _AR(legs=legs, total_value_usd=total, core_weight_pct=0.0,
+               satellite_weight_pct=0.0, usdtry=None)
+
+
+def test_plan_dca_all_to_most_underweight():
+    # A hedef 50% deger 100 (oran 200), B hedef 50% deger 300 (oran 600)
+    rep = _report([_leg("A", "core", 50, 100, 10.0), _leg("B", "core", 50, 300, 10.0)])
+    plan = plan_dca(rep, contribution_usd=100.0, fractional=True)
+    buys = {i.symbol: i.buy_usd for i in plan.items}
+    assert buys.get("A") == 100.0  # tumu A'ya (en geride)
+    assert "B" not in buys
+    assert plan.deployed_usd == 100.0
+
+
+def test_plan_dca_equal_ratio_splits_by_target():
+    rep = _report([_leg("A", "core", 50, 100, 10.0), _leg("B", "core", 50, 100, 10.0)])
+    plan = plan_dca(rep, 100.0, fractional=True)
+    buys = {i.symbol: round(i.buy_usd, 2) for i in plan.items}
+    assert buys == {"A": 50.0, "B": 50.0}
+
+
+def test_plan_dca_whole_share_rounds_and_leaves_leftover():
+    # 100$ butce, fiyat 60$, tam lot -> 1 lot (60$), 40$ artik
+    rep = _report([_leg("A", "core", 100, 0, 60.0)])
+    plan = plan_dca(rep, 100.0, fractional=False)
+    assert plan.items[0].buy_shares == 1
+    assert plan.items[0].buy_usd == 60.0
+    assert round(plan.leftover_usd, 2) == 40.0
+
+
+def test_plan_dca_zero_contribution_empty():
+    rep = _report([_leg("A", "core", 100, 100, 10.0)])
+    plan = plan_dca(rep, 0.0, fractional=True)
+    assert plan.items == []

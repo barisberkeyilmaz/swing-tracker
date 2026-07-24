@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -93,6 +94,20 @@ class RebalanceAlert:
     last_review_date: date | None
 
 
+@dataclass
+class DcaItem:
+    symbol: str
+    buy_usd: float
+    buy_shares: float
+
+
+@dataclass
+class DcaPlan:
+    items: list[DcaItem]
+    deployed_usd: float
+    leftover_usd: float
+
+
 def check_rebalance(
     report: AllocationReport,
     threshold_pct: float,
@@ -110,3 +125,74 @@ def check_rebalance(
     next_date = (last_review + timedelta(days=interval_days)).date()
     review_due = now.date() >= next_date
     return RebalanceAlert(drifted, review_due, next_date, last_review.date())
+
+
+_EPS = 1e-9
+
+
+def _waterfill(
+    values: dict[str, float], target_frac: dict[str, float], budget: float
+) -> dict[str, float]:
+    """Alim-only water-filling: en dusuk value/target oranli bacaklara para doker.
+    Dondurur: {symbol: eklenecek_usd}. Toplam ~= budget (butce > 0 ise)."""
+    add = {s: 0.0 for s in target_frac}
+    syms = [s for s in target_frac if target_frac[s] > 0]
+    if budget <= _EPS or not syms:
+        return add
+    remaining = budget
+    while remaining > _EPS:
+        ratios = {s: (values[s] + add[s]) / target_frac[s] for s in syms}
+        min_r = min(ratios.values())
+        group = [s for s in syms if ratios[s] <= min_r + _EPS]
+        higher = [ratios[s] for s in syms if ratios[s] > min_r + _EPS]
+        tsum = sum(target_frac[s] for s in group)
+        if higher:
+            target_r = min(higher)
+            cost = sum(target_frac[s] * (target_r - ratios[s]) for s in group)
+            if cost <= remaining + _EPS:
+                for s in group:
+                    add[s] += target_frac[s] * (target_r - ratios[s])
+                remaining -= cost
+                continue
+        # ya hepsi esit (higher yok) ya da butce bir sonraki seviyeye yetmiyor:
+        # kalan butceyi grup icinde target agirligina gore dagit
+        for s in group:
+            add[s] += remaining * (target_frac[s] / tsum)
+        remaining = 0.0
+    return add
+
+
+def plan_dca(
+    report: AllocationReport, contribution_usd: float, fractional: bool
+) -> DcaPlan:
+    legs = [l for l in report.legs if not l.price_stale and l.target_pct > 0]
+    if contribution_usd <= 0 or not legs:
+        return DcaPlan(items=[], deployed_usd=0.0,
+                       leftover_usd=max(contribution_usd, 0.0))
+    values = {l.symbol: l.value_usd for l in legs}
+    target_frac = {l.symbol: l.target_pct / 100.0 for l in legs}
+    prices = {l.symbol: l.price_usd for l in legs}
+    add = _waterfill(values, target_frac, contribution_usd)
+
+    items: list[DcaItem] = []
+    deployed = 0.0
+    leftover = 0.0
+    for sym, amt in add.items():
+        if amt <= _EPS:
+            continue
+        price = prices[sym]
+        if fractional:
+            shares = amt / price
+            spend = amt
+        else:
+            shares = float(math.floor(amt / price))
+            spend = shares * price
+        if shares <= 0:
+            leftover += amt
+            continue
+        deployed += spend
+        leftover += amt - spend
+        items.append(DcaItem(symbol=sym, buy_usd=round(spend, 2),
+                             buy_shares=round(shares, 4)))
+    return DcaPlan(items=items, deployed_usd=round(deployed, 2),
+                   leftover_usd=round(leftover, 2))
