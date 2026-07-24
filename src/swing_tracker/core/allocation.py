@@ -45,7 +45,7 @@ def compute_weights(
     for sym, tgt in targets.items():
         shares = shares_by_sym.get(sym, 0.0)
         price = prices.get(sym)
-        stale = price is None
+        stale = price is None or price <= 0
         value = 0.0 if stale else shares * price
         if not stale:
             total += value

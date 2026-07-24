@@ -38,6 +38,16 @@ def test_compute_weights_marks_stale_price():
     assert rep.total_value_usd == 100.0  # sadece QTUM
 
 
+def test_compute_weights_zero_price_is_stale():
+    holdings = [{"symbol": "VOO", "shares": 5.0}, {"symbol": "QTUM", "shares": 1.0}]
+    prices = {"VOO": 0.0, "QTUM": 100.0, "VXUS": 80.0, "FIW": 100.0, "XLE": 60.0}
+    rep = compute_weights(holdings, prices, _targets())
+    voo = next(leg for leg in rep.legs if leg.symbol == "VOO")
+    assert voo.price_stale is True
+    assert voo.value_usd == 0.0
+    assert rep.total_value_usd == 100.0  # only QTUM counts
+
+
 def test_compute_weights_empty_holdings():
     rep = compute_weights([], {}, _targets())
     assert rep.total_value_usd == 0.0
@@ -135,3 +145,15 @@ def test_plan_dca_zero_contribution_empty():
     rep = _report([_leg("A", "core", 100, 100, 10.0)])
     plan = plan_dca(rep, 0.0, fractional=True)
     assert plan.items == []
+
+
+def test_plan_dca_ignores_zero_price_leg():
+    stale_leg = _AL("ZERO", "AMEX", "core", 50.0, 0.0, 0.0, 0.0, 0.0, 0.0, True)
+    normal_leg = _leg("GOOD", "core", 50.0, 100.0, 10.0)
+    rep = _report([stale_leg, normal_leg])
+    plan = plan_dca(rep, 100.0, fractional=True)
+    # Should not allocate to zero-price stale leg
+    assert not any(item.symbol == "ZERO" for item in plan.items)
+    # Should allocate to normal leg
+    assert any(item.symbol == "GOOD" for item in plan.items)
+    assert plan.deployed_usd == 100.0
