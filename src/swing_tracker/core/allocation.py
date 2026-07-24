@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 
 from swing_tracker.config import AllocationTarget
 
@@ -82,3 +83,30 @@ def compute_weights(
         satellite_weight_pct=sat_w,
         usdtry=usdtry,
     )
+
+
+@dataclass
+class RebalanceAlert:
+    drifted_legs: list[AllocationLeg]
+    review_due: bool
+    next_review_date: date | None
+    last_review_date: date | None
+
+
+def check_rebalance(
+    report: AllocationReport,
+    threshold_pct: float,
+    last_review: datetime | None,
+    interval_days: int,
+    now: datetime,
+) -> RebalanceAlert:
+    drifted = [
+        leg
+        for leg in report.legs
+        if not leg.price_stale and abs(leg.drift_pct) >= threshold_pct
+    ]
+    if last_review is None:
+        return RebalanceAlert(drifted, True, None, None)
+    next_date = (last_review + timedelta(days=interval_days)).date()
+    review_due = now.date() >= next_date
+    return RebalanceAlert(drifted, review_due, next_date, last_review.date())
