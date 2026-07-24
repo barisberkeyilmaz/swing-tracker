@@ -24,7 +24,15 @@ from swing_tracker.web.auth import (
     verify_session_token,
 )
 from swing_tracker.web.dependencies import init_state
-from swing_tracker.web.routers import dashboard, portfolio, signals, symbol, trades, whatif
+from swing_tracker.web.routers import (
+    allocation,
+    dashboard,
+    portfolio,
+    signals,
+    symbol,
+    trades,
+    whatif,
+)
 
 logger = logging.getLogger("swing_tracker.web")
 
@@ -123,6 +131,7 @@ app.include_router(signals.router)
 app.include_router(trades.router)
 app.include_router(symbol.router)
 app.include_router(whatif.router)
+app.include_router(allocation.router)
 
 
 def main():

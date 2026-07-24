@@ -163,6 +163,32 @@ TABLES = [
         created_at TEXT DEFAULT (datetime('now'))
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS allocation_holdings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL UNIQUE,
+        exchange TEXT NOT NULL,
+        shares REAL NOT NULL DEFAULT 0,
+        cost_per_share REAL,
+        notes TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS allocation_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reviewed_at TEXT DEFAULT (datetime('now')),
+        note TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS allocation_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
 ]
 
 INDEXES = [

@@ -99,3 +99,41 @@ tp1_exit_pct = 0.50
 tp2_exit_pct = 0.30
 trailing_stop = true
 use_sr_levels = true
+
+[allocation]
+enabled = true
+base_currency = "USD"
+monthly_contribution_usd = 500
+drift_threshold_pct = 5.0
+review_interval_days = 91
+fractional = true
+
+[allocation.targets.VOO]
+weight = 28
+exchange = "AMEX"
+group = "core"
+note = "S&P 500"
+
+[allocation.targets.VXUS]
+weight = 12
+exchange = "NASDAQ"
+group = "core"
+note = "Ex-US"
+
+[allocation.targets.QTUM]
+weight = 20
+exchange = "NASDAQ"
+group = "satellite"
+note = "Kuantum/AI"
+
+[allocation.targets.FIW]
+weight = 20
+exchange = "AMEX"
+group = "satellite"
+note = "Su"
+
+[allocation.targets.XLE]
+weight = 20
+exchange = "AMEX"
+group = "satellite"
+note = "Enerji"

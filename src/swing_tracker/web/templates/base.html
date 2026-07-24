@@ -81,6 +81,10 @@
                         {% block nav_whatif %}text-txt-muted hover:text-txt-primary hover:bg-accent/5{% endblock %}">
                         What-if
                     </a>
+                    <a href="/allocation" class="px-3 py-1.5 rounded-lg text-sm font-medium
+                        {% block nav_allocation %}text-txt-muted hover:text-txt-primary hover:bg-accent/5{% endblock %}">
+                        Allocation
+                    </a>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -146,6 +150,14 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636" />
                 </svg>
                 <span class="text-[10px] font-medium">What-if</span>
+            </a>
+            <a href="/allocation" class="flex-1 flex flex-col items-center gap-0.5 py-2.5
+                {% block bottom_nav_allocation %}text-txt-muted{% endblock %}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                </svg>
+                <span class="text-[10px] font-medium">Allocation</span>
             </a>
         </div>
     </nav>

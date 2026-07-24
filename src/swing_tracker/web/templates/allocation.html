@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Allocation{% endblock %}
+{% block nav_allocation %}text-txt-primary bg-accent/10{% endblock %}
+{% block bottom_nav_allocation %}text-txt-primary{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+  <div class="flex items-center justify-between">
+    <h1 class="text-xl font-bold text-txt-primary">Allocation &amp; Rebalance</h1>
+    {% if view.report.usdtry %}
+    <span class="text-sm text-txt-muted">USDTRY
+      <span class="font-mono tabular-nums">{{ "%.2f"|format(view.report.usdtry) }}</span>
+    </span>
+    {% endif %}
+  </div>
+
+  {% if view.alert.review_due %}
+  <form action="/allocation/review" method="post"
+        class="flex items-center gap-3 bg-warning/10 border border-warning/30 rounded-lg px-4 py-3">
+    <span class="text-sm text-warning flex-1">Ceyreklik kontrol zamani geldi.</span>
+    <button class="text-xs px-3 py-1.5 rounded-lg border border-border">Kontrol yapildi</button>
+  </form>
+  {% endif %}
+
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="bg-surface-raised rounded-lg p-3">
+      <div class="text-xs text-txt-muted">Toplam deger</div>
+      <div class="text-lg font-mono tabular-nums text-txt-primary">
+        ${{ "{:,.0f}".format(view.report.total_value_usd) }}</div>
+      {% if view.report.usdtry %}
+      <div class="text-xs text-txt-muted font-mono">
+        ₺{{ "{:,.0f}".format(view.report.total_value_usd * view.report.usdtry) }}</div>
+      {% endif %}
+    </div>
+    <div class="bg-surface-raised rounded-lg p-3">
+      <div class="text-xs text-txt-muted">Core (hedef 40%)</div>
+      <div class="text-lg font-mono tabular-nums text-txt-primary">
+        {{ "%.1f"|format(view.report.core_weight_pct) }}%</div>
+    </div>
+    <div class="bg-surface-raised rounded-lg p-3">
+      <div class="text-xs text-txt-muted">Satellite (hedef 60%)</div>
+      <div class="text-lg font-mono tabular-nums text-txt-primary">
+        {{ "%.1f"|format(view.report.satellite_weight_pct) }}%</div>
+    </div>
+    <div class="bg-surface-raised rounded-lg p-3">
+      <div class="text-xs text-txt-muted">Core %40 ETA</div>
+      <div class="text-lg font-mono tabular-nums text-txt-primary">
+        {% if view.eta.already_met %}Hedefte{% elif view.eta.months %}≈ {{ view.eta.months }} ay{% else %}—{% endif %}</div>
+      {% if view.eta.target_date and not view.eta.already_met %}
+      <div class="text-xs text-txt-muted">~{{ view.eta.target_date.strftime('%m/%Y') }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <table class="w-full text-sm">
+    <thead><tr class="text-txt-muted text-xs text-right">
+      <th class="text-left font-normal py-2">ETF</th><th class="font-normal">Hedef</th>
+      <th class="font-normal">Gercek</th><th class="font-normal">Drift</th>
+      <th class="font-normal">Deger $</th><th class="font-normal">Deger ₺</th>
+    </tr></thead>
+    <tbody>
+    {% for leg in view.report.legs %}
+      <tr class="border-t border-border text-right">
+        <td class="text-left py-2">
+          <a href="/symbol/{{ leg.symbol }}" class="font-medium text-txt-primary">{{ leg.symbol }}</a>
+          <span class="text-xs text-txt-muted">{{ leg.group }}</span>
+        </td>
+        <td class="font-mono tabular-nums">{{ "%.0f"|format(leg.target_pct) }}%</td>
+        {% if leg.price_stale %}
+          <td colspan="4" class="text-txt-muted">— fiyat alinamadi</td>
+        {% else %}
+          <td class="font-mono tabular-nums">{{ "%.1f"|format(leg.weight_pct) }}%</td>
+          <td>
+            {% set d = leg.drift_pct %}
+            {% set cls = 'bg-negative/15 text-negative' if d|abs >= config.drift_threshold_pct else ('bg-warning/15 text-warning' if d|abs >= 3 else 'text-txt-muted') %}
+            <span class="px-2 py-0.5 rounded font-mono tabular-nums text-xs {{ cls }}">
+              {{ "%+.1f"|format(d) }}</span>
+          </td>
+          <td class="font-mono tabular-nums">{{ "{:,.0f}".format(leg.value_usd) }}</td>
+          <td class="font-mono tabular-nums text-txt-muted">
+            {% if view.report.usdtry %}{{ "{:,.0f}".format(leg.value_usd * view.report.usdtry) }}{% else %}—{% endif %}</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <form action="/allocation/dca" method="post"
+        class="flex items-center gap-3 bg-surface-raised rounded-lg px-4 py-3">
+    <label class="text-sm text-txt-secondary">Aylik katki $</label>
+    <input type="number" step="1" name="contribution" value="{{ '%.0f'|format(view.contribution_usd) }}"
+           class="w-28 bg-surface border border-border rounded-lg px-2 py-1 font-mono" />
+    <button class="text-xs px-3 py-1.5 rounded-lg border border-border">Hesapla</button>
+    {% if view.report.usdtry %}
+    <span class="text-xs text-txt-muted">≈ ₺{{ "{:,.0f}".format(view.contribution_usd * view.report.usdtry) }}</span>
+    {% endif %}
+  </form>
+
+  <div class="grid sm:grid-cols-2 gap-4">
+    <div class="bg-surface-raised rounded-lg p-4">
+      <div class="text-sm font-medium text-txt-primary mb-2">DCA onerisi
+        <span class="text-xs text-positive">sadece alim</span></div>
+      <table class="w-full text-sm">
+        {% for it in view.dca.items %}
+        <tr class="text-right"><td class="text-left py-1 text-txt-secondary">{{ it.symbol }}</td>
+          <td class="text-positive font-mono">+${{ "%.0f"|format(it.buy_usd) }}</td>
+          <td class="text-txt-muted font-mono text-xs">{{ "%.2f"|format(it.buy_shares) }} lot</td></tr>
+        {% else %}
+        <tr><td class="text-txt-muted py-1">Katki gir.</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    <div class="bg-surface-raised rounded-lg p-4">
+      <div class="text-sm font-medium text-txt-primary mb-2">Tam rebalance
+        <span class="text-xs text-accent">sat + al</span></div>
+      <table class="w-full text-sm">
+        {% for it in view.rebalance.items %}{% if it.action != 'HOLD' %}
+        <tr class="text-right"><td class="text-left py-1 text-txt-secondary">{{ it.symbol }}</td>
+          <td class="font-mono {{ 'text-positive' if it.action == 'BUY' else 'text-negative' }}">
+            {{ 'AL' if it.action == 'BUY' else 'SAT' }} ${{ "%.0f"|format(it.amount_usd) }}</td></tr>
+        {% endif %}{% endfor %}
+      </table>
+      <div class="text-xs text-txt-muted mt-2">Net nakit ${{ "%.0f"|format(view.rebalance.net_cash_usd) }}</div>
+    </div>
+  </div>
+
+  <form action="/allocation/holding" method="post"
+        class="flex flex-wrap items-center gap-2 border-t border-border pt-4">
+    <span class="text-sm text-txt-secondary">Pozisyon ekle/guncelle</span>
+    <input name="symbol" placeholder="Sembol" class="w-24 bg-surface border border-border rounded-lg px-2 py-1" required />
+    <input name="exchange" placeholder="Borsa" class="w-24 bg-surface border border-border rounded-lg px-2 py-1" required />
+    <input name="shares" type="number" step="0.0001" placeholder="Lot" class="w-24 bg-surface border border-border rounded-lg px-2 py-1" required />
+    <input name="cost_per_share" type="number" step="0.01" placeholder="Ort. maliyet $" class="w-32 bg-surface border border-border rounded-lg px-2 py-1" />
+    <button class="text-xs px-3 py-1.5 rounded-lg border border-border">Kaydet</button>
+  </form>
+
+  <p class="text-xs text-txt-muted">Sadece oneri — otomatik emir yok. Fiyatlar canli, ETA fiyat hareketleri haric.</p>
+</div>
+{% endblock %}

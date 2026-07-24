@@ -553,3 +553,76 @@ class Repository:
             (symbol, market, sector, fetched_at),
         )
         self._conn.commit()
+
+    # ── Allocation ──
+
+    def upsert_allocation_holding(
+        self,
+        symbol: str,
+        exchange: str,
+        shares: float,
+        cost_per_share: float | None = None,
+        notes: str | None = None,
+    ) -> int:
+        cur = self._conn.execute(
+            """INSERT INTO allocation_holdings
+               (symbol, exchange, shares, cost_per_share, notes)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(symbol) DO UPDATE SET
+                 exchange = excluded.exchange,
+                 shares = excluded.shares,
+                 cost_per_share = excluded.cost_per_share,
+                 notes = excluded.notes,
+                 updated_at = datetime('now')""",
+            (symbol, exchange, shares, cost_per_share, notes),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def get_allocation_holdings(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM allocation_holdings ORDER BY symbol"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_allocation_holding(self, symbol: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM allocation_holdings WHERE symbol = ?", (symbol,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def delete_allocation_holding(self, symbol: str) -> None:
+        self._conn.execute(
+            "DELETE FROM allocation_holdings WHERE symbol = ?", (symbol,)
+        )
+        self._conn.commit()
+
+    def log_allocation_review(self, note: str | None = None) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO allocation_reviews (note) VALUES (?)", (note,)
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def get_last_allocation_review(self) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM allocation_reviews ORDER BY reviewed_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_allocation_setting(self, key: str, default: str | None = None) -> str | None:
+        row = self._conn.execute(
+            "SELECT value FROM allocation_settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else default
+
+    def set_allocation_setting(self, key: str, value: str) -> None:
+        self._conn.execute(
+            """INSERT INTO allocation_settings (key, value)
+               VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 value = excluded.value,
+                 updated_at = datetime('now')""",
+            (key, value),
+        )
+        self._conn.commit()
