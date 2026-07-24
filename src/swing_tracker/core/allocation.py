@@ -251,3 +251,74 @@ def plan_rebalance(
                                        round(shares, 4)))
             net -= amount
     return RebalancePlan(items=items, net_cash_usd=round(net, 2))
+
+
+def _add_months(d: date, months: int) -> date:
+    total = (d.month - 1) + months
+    year = d.year + total // 12
+    month = total % 12 + 1
+    return date(year, month, 1)
+
+
+@dataclass
+class TargetEta:
+    months: int | None
+    target_date: date | None
+    already_met: bool
+    note: str
+
+
+def estimate_months_to_core_target(
+    report: AllocationReport,
+    contribution_usd: float,
+    targets: dict[str, AllocationTarget],
+    now: datetime,
+    target_core_pct: float = 40.0,
+    max_months: int = 600,
+) -> TargetEta:
+    core_syms = {s for s, t in targets.items() if t.group == "core"}
+    sat_syms = {s for s, t in targets.items() if t.group == "satellite"}
+    values = {leg.symbol: leg.value_usd for leg in report.legs
+              if not leg.price_stale and leg.target_pct > 0}
+
+    # Scale target weights by target_core_pct / (100 - target_core_pct)
+    core_weight_sum = sum(targets[s].weight for s in core_syms if s in values)
+    sat_weight_sum = sum(targets[s].weight for s in sat_syms if s in values)
+
+    target_frac = {}
+    for s in values:
+        t = targets[s]
+        if t.group == "core":
+            target_frac[s] = (
+                (target_core_pct / 100.0) * (t.weight / core_weight_sum)
+                if core_weight_sum > 0 else 0.0
+            )
+        else:  # satellite
+            target_frac[s] = (
+                ((100 - target_core_pct) / 100.0) * (t.weight / sat_weight_sum)
+                if sat_weight_sum > 0 else 0.0
+            )
+
+    def core_weight() -> float:
+        tot = sum(values.values())
+        if tot <= 0:
+            return 0.0
+        return 100.0 * sum(v for s, v in values.items() if s in core_syms) / tot
+
+    if core_weight() >= target_core_pct:
+        return TargetEta(0, now.date(), True, "Core zaten hedefte.")
+    if contribution_usd <= 0:
+        return TargetEta(None, None, False, "Katki 0 — tahmin yok.")
+
+    months = 0
+    while months < max_months:
+        add = _waterfill(values, target_frac, contribution_usd)
+        for s, a in add.items():
+            values[s] += a
+        months += 1
+        if core_weight() >= target_core_pct:
+            return TargetEta(
+                months, _add_months(now.date(), months), False,
+                "Fiyat hareketleri haric, mevcut katki temposuyla.",
+            )
+    return TargetEta(None, None, False, "Mevcut tempoyla ulasilamiyor.")

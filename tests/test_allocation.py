@@ -8,6 +8,7 @@ from swing_tracker.core.allocation import (
     check_rebalance,
     compute_weights,
     compute_weights as _cw,
+    estimate_months_to_core_target,
     plan_dca,
     plan_rebalance,
 )
@@ -198,3 +199,40 @@ def test_rebalance_whole_share_mode():
     valid_actions = {"BUY", "SELL", "HOLD"}
     for item in plan.items:
         assert item.action in valid_actions, f"Action {item.action} not in {valid_actions}"
+
+
+def test_eta_reaches_core_target():
+    # core VOO deger 100, satellite QTUM deger 300 -> core %25; hedef %40
+    rep = _report([_leg("VOO", "core", 28, 100, 10.0),
+                   _leg("QTUM", "satellite", 72, 300, 10.0)])
+    targets = {
+        "VOO": _AT("VOO", 28, "AMEX", "core", ""),
+        "QTUM": _AT("QTUM", 72, "NASDAQ", "satellite", ""),
+    }
+    eta = estimate_months_to_core_target(rep, 100.0, targets, datetime(2026, 7, 24))
+    assert eta.already_met is False
+    assert eta.months is not None and eta.months > 0
+    assert eta.target_date is not None
+
+
+def test_eta_already_met():
+    rep = _report([_leg("VOO", "core", 40, 500, 10.0),
+                   _leg("QTUM", "satellite", 60, 300, 10.0)])
+    targets = {
+        "VOO": _AT("VOO", 40, "AMEX", "core", ""),
+        "QTUM": _AT("QTUM", 60, "NASDAQ", "satellite", ""),
+    }
+    eta = estimate_months_to_core_target(rep, 100.0, targets, datetime(2026, 7, 24))
+    assert eta.already_met is True
+    assert eta.months == 0
+
+
+def test_eta_zero_contribution_unknown():
+    rep = _report([_leg("VOO", "core", 40, 100, 10.0),
+                   _leg("QTUM", "satellite", 60, 300, 10.0)])
+    targets = {
+        "VOO": _AT("VOO", 40, "AMEX", "core", ""),
+        "QTUM": _AT("QTUM", 60, "NASDAQ", "satellite", ""),
+    }
+    eta = estimate_months_to_core_target(rep, 0.0, targets, datetime(2026, 7, 24))
+    assert eta.months is None
