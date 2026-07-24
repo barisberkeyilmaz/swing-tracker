@@ -1,5 +1,5 @@
 from swing_tracker.config import AllocationTarget
-from swing_tracker.core.allocation import compute_weights
+from swing_tracker.core.allocation import compute_weights, plan_rebalance
 
 
 def _targets():
@@ -157,3 +157,27 @@ def test_plan_dca_ignores_zero_price_leg():
     # Should allocate to normal leg
     assert any(item.symbol == "GOOD" for item in plan.items)
     assert plan.deployed_usd == 100.0
+
+
+def test_rebalance_net_cash_equals_contribution():
+    # A hedef 50 deger 100, B hedef 50 deger 300; katki 100 -> T'=500
+    rep = _report([_leg("A", "core", 50, 100, 10.0), _leg("B", "core", 50, 300, 10.0)])
+    plan = plan_rebalance(rep, contribution_usd=100.0, fractional=True)
+    acts = {i.symbol: (i.action, round(i.amount_usd, 2)) for i in plan.items}
+    assert acts["A"] == ("BUY", 150.0)   # 250 - 100
+    assert acts["B"] == ("SELL", 50.0)   # 250 - 300
+    assert round(plan.net_cash_usd, 2) == 100.0  # 150 - 50
+
+
+def test_rebalance_zero_contribution_is_cash_neutral():
+    rep = _report([_leg("A", "core", 50, 100, 10.0), _leg("B", "core", 50, 300, 10.0)])
+    plan = plan_rebalance(rep, 0.0, fractional=True)
+    assert round(plan.net_cash_usd, 2) == 0.0
+    acts = {i.symbol: i.action for i in plan.items}
+    assert acts["A"] == "BUY" and acts["B"] == "SELL"
+
+
+def test_rebalance_on_target_holds():
+    rep = _report([_leg("A", "core", 50, 200, 10.0), _leg("B", "core", 50, 200, 10.0)])
+    plan = plan_rebalance(rep, 0.0, fractional=True)
+    assert all(i.action == "HOLD" for i in plan.items)

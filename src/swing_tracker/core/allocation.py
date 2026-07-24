@@ -196,3 +196,58 @@ def plan_dca(
                              buy_shares=round(shares, 4)))
     return DcaPlan(items=items, deployed_usd=round(deployed, 2),
                    leftover_usd=round(leftover, 2))
+
+
+@dataclass
+class RebalanceItem:
+    symbol: str
+    action: str  # "BUY" | "SELL" | "HOLD"
+    amount_usd: float
+    shares: float
+
+
+@dataclass
+class RebalancePlan:
+    items: list[RebalanceItem]
+    net_cash_usd: float
+
+
+def plan_rebalance(
+    report: AllocationReport,
+    contribution_usd: float,
+    fractional: bool,
+    min_trade_usd: float = 1.0,
+) -> RebalancePlan:
+    legs = [l for l in report.legs if not l.price_stale and l.target_pct > 0]
+    if not legs:
+        return RebalancePlan(items=[], net_cash_usd=0.0)
+    total = sum(l.value_usd for l in legs)
+    t_prime = total + max(contribution_usd, 0.0)
+
+    items: list[RebalanceItem] = []
+    net = 0.0
+    for l in legs:
+        target_val = (l.target_pct / 100.0) * t_prime
+        delta = target_val - l.value_usd
+        if abs(delta) < min_trade_usd:
+            items.append(RebalanceItem(l.symbol, "HOLD", 0.0, 0.0))
+            continue
+        price = l.price_usd
+        if fractional:
+            shares = abs(delta) / price
+            amount = abs(delta)
+        else:
+            shares = float(math.floor(abs(delta) / price))
+            amount = shares * price
+            if shares <= 0:
+                items.append(RebalanceItem(l.symbol, "HOLD", 0.0, 0.0))
+                continue
+        if delta > 0:
+            items.append(RebalanceItem(l.symbol, "BUY", round(amount, 2),
+                                       round(shares, 4)))
+            net += amount
+        else:
+            items.append(RebalanceItem(l.symbol, "SELL", round(amount, 2),
+                                       round(shares, 4)))
+            net -= amount
+    return RebalancePlan(items=items, net_cash_usd=round(net, 2))
