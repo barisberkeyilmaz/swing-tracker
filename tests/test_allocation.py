@@ -181,3 +181,18 @@ def test_rebalance_on_target_holds():
     rep = _report([_leg("A", "core", 50, 200, 10.0), _leg("B", "core", 50, 200, 10.0)])
     plan = plan_rebalance(rep, 0.0, fractional=True)
     assert all(i.action == "HOLD" for i in plan.items)
+
+
+def test_rebalance_whole_share_mode():
+    # Test fractional=False mode with two legs
+    rep = _report([_leg("A", "core", 50, 100, 10.0), _leg("B", "core", 50, 300, 10.0)])
+    plan = plan_rebalance(rep, contribution_usd=100.0, fractional=False)
+    # Assert no exception raised
+    assert plan is not None
+    # Assert every item's shares is a whole number
+    for item in plan.items:
+        assert item.shares == int(item.shares), f"Shares {item.shares} is not whole"
+    # Assert all actions are in valid set
+    valid_actions = {"BUY", "SELL", "HOLD"}
+    for item in plan.items:
+        assert item.action in valid_actions, f"Action {item.action} not in {valid_actions}"

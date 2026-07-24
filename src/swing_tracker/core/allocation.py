@@ -165,13 +165,13 @@ def _waterfill(
 def plan_dca(
     report: AllocationReport, contribution_usd: float, fractional: bool
 ) -> DcaPlan:
-    legs = [l for l in report.legs if not l.price_stale and l.target_pct > 0]
+    legs = [leg for leg in report.legs if not leg.price_stale and leg.target_pct > 0]
     if contribution_usd <= 0 or not legs:
         return DcaPlan(items=[], deployed_usd=0.0,
                        leftover_usd=max(contribution_usd, 0.0))
-    values = {l.symbol: l.value_usd for l in legs}
-    target_frac = {l.symbol: l.target_pct / 100.0 for l in legs}
-    prices = {l.symbol: l.price_usd for l in legs}
+    values = {leg.symbol: leg.value_usd for leg in legs}
+    target_frac = {leg.symbol: leg.target_pct / 100.0 for leg in legs}
+    prices = {leg.symbol: leg.price_usd for leg in legs}
     add = _waterfill(values, target_frac, contribution_usd)
 
     items: list[DcaItem] = []
@@ -218,21 +218,21 @@ def plan_rebalance(
     fractional: bool,
     min_trade_usd: float = 1.0,
 ) -> RebalancePlan:
-    legs = [l for l in report.legs if not l.price_stale and l.target_pct > 0]
+    legs = [leg for leg in report.legs if not leg.price_stale and leg.target_pct > 0]
     if not legs:
         return RebalancePlan(items=[], net_cash_usd=0.0)
-    total = sum(l.value_usd for l in legs)
+    total = sum(leg.value_usd for leg in legs)
     t_prime = total + max(contribution_usd, 0.0)
 
     items: list[RebalanceItem] = []
     net = 0.0
-    for l in legs:
-        target_val = (l.target_pct / 100.0) * t_prime
-        delta = target_val - l.value_usd
+    for leg in legs:
+        target_val = (leg.target_pct / 100.0) * t_prime
+        delta = target_val - leg.value_usd
         if abs(delta) < min_trade_usd:
-            items.append(RebalanceItem(l.symbol, "HOLD", 0.0, 0.0))
+            items.append(RebalanceItem(leg.symbol, "HOLD", 0.0, 0.0))
             continue
-        price = l.price_usd
+        price = leg.price_usd
         if fractional:
             shares = abs(delta) / price
             amount = abs(delta)
@@ -240,14 +240,14 @@ def plan_rebalance(
             shares = float(math.floor(abs(delta) / price))
             amount = shares * price
             if shares <= 0:
-                items.append(RebalanceItem(l.symbol, "HOLD", 0.0, 0.0))
+                items.append(RebalanceItem(leg.symbol, "HOLD", 0.0, 0.0))
                 continue
         if delta > 0:
-            items.append(RebalanceItem(l.symbol, "BUY", round(amount, 2),
+            items.append(RebalanceItem(leg.symbol, "BUY", round(amount, 2),
                                        round(shares, 4)))
             net += amount
         else:
-            items.append(RebalanceItem(l.symbol, "SELL", round(amount, 2),
+            items.append(RebalanceItem(leg.symbol, "SELL", round(amount, 2),
                                        round(shares, 4)))
             net -= amount
     return RebalancePlan(items=items, net_cash_usd=round(net, 2))
