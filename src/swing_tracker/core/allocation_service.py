@@ -82,3 +82,20 @@ def build_report(
     eta = estimate_months_to_core_target(report, contribution, config.targets, now)
 
     return AllocationView(report, alert, dca, rebalance, eta, contribution)
+
+
+def run_allocation_check(
+    repo: Repository,
+    config: AllocationConfig,
+    notifier,
+    now: datetime | None = None,
+    price_cache=etf_prices.etf_price_cache,
+) -> None:
+    """Scheduler girisi: drift/vade kontrolu, gerekiyorsa Telegram bildirimi."""
+    if not config.enabled:
+        return
+    view = build_report(repo, config, now=now, price_cache=price_cache)
+    if view.alert.drifted_legs:
+        notifier.notify_allocation_drift(view)
+    if view.alert.review_due:
+        notifier.notify_allocation_review(view.alert.next_review_date)

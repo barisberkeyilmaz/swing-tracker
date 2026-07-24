@@ -72,6 +72,26 @@ def chunk_message(text: str, limit: int = TELEGRAM_MAX_LEN) -> list[str]:
     return chunks
 
 
+def build_drift_message(view) -> str:
+    """Allocation drift bildirimi icin saf format fonksiyonu (I/O yok)."""
+    lines = ["<b>Allocation drift uyarisi</b>"]
+    for leg in view.alert.drifted_legs:
+        lines.append(
+            f"{leg.symbol}: {leg.weight_pct:.1f}% (hedef {leg.target_pct:.0f}%, "
+            f"drift {leg.drift_pct:+.1f})"
+        )
+    lines.append("\nSadece oneri — otomatik emir yok.")
+    return "\n".join(lines)
+
+
+def build_review_message(next_date) -> str:
+    """Allocation ceyreklik gozden gecirme bildirimi icin saf format fonksiyonu."""
+    return (
+        f"<b>Allocation ceyreklik kontrol</b>\n"
+        f"Rebalance gozden gecirme zamani ({next_date.isoformat()})."
+    )
+
+
 class TelegramNotifier:
     def __init__(self, config: TelegramConfig):
         self._config = config
@@ -882,6 +902,22 @@ class TelegramNotifier:
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     # ── Notification Methods ──
+
+    def send_message_sync(self, text: str) -> None:
+        """Sync context'ten (scheduler) mesaj gonderme; kalici loop'ta calisir."""
+        self.run_sync(self.send_message(text))
+
+    def notify_allocation_drift(self, view) -> None:
+        """Allocation drift bildirimi — sadece oneri, otomatik emir yok."""
+        if not self._config.enabled or not view.alert.drifted_legs:
+            return
+        self.send_message_sync(build_drift_message(view))
+
+    def notify_allocation_review(self, next_date) -> None:
+        """Allocation ceyreklik gozden gecirme bildirimi."""
+        if not self._config.enabled:
+            return
+        self.send_message_sync(build_review_message(next_date))
 
     async def send_message(self, text: str) -> None:
         """Send a text message to the configured chat."""
